@@ -211,7 +211,16 @@ export async function runAutonomousAgent(
     ? `\nACTIVE FILE: ${activeFile}\nUse this as the target for edit operations unless user specifies another file.`
     : '';
 
-  const systemPrompt = `You are OfficeAI, a document automation assistant. You create and edit Word (.docx) and Excel (.xlsx) files.
+  // Detect if this request touches an existing file so we hint read-first
+  const editKeywords = /edit|modify|change|update|replace|fix|add|delete|remove|rename|format|style|bold|color|insert|append|clear|rewrite|improve|translate|adjust|set|make/i;
+  const mentionsFile = files.some(f => userMessage.toLowerCase().includes(f.name.toLowerCase().replace('.docx','').replace('.xlsx','')));
+  const isEditRequest = editKeywords.test(userMessage) && (mentionsFile || files.length === 1);
+  const readFirstHint = isEditRequest
+    ? `
+IMPORTANT: This request edits an existing file. Use get_paragraph_index (Word) or read_spreadsheet_full (Excel) FIRST, then make precise edits using the returned indices/cell addresses.`
+    : '';
+
+  const systemPrompt = `You are OfficeAI, a powerful document AI with FULL surgical control over every Word and Excel file.
 
 ${TOOL_DEFINITIONS}
 
@@ -220,7 +229,8 @@ FILES IN STORAGE:
 ${fileList}
 ${structureContext}
 ${activeFileContext}
-${historyContext}`;
+${historyContext}
+${readFirstHint}`;
 
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt }
@@ -253,7 +263,7 @@ ${historyContext}`;
       return { thinking: 'Aborted', plan: [], toolCalls: [], results: [], finalMessage: 'Request cancelled.', corrections: 0, isChat: true };
     }
     try {
-      const aiResponse = await chatCompletion(messages, { temperature: 0.1, maxTokens: 4096 });
+      const aiResponse = await chatCompletion(messages, { temperature: 0.1, maxTokens: 8192 });
       parsedResponse = parseJsonResponse(aiResponse);
       if (parsedResponse && parsedResponse.tool_calls && parsedResponse.tool_calls.length > 0) break;
     } catch (e) {
