@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { readDocx, countImagesInDocx, countTablesInDocx } from './doc-reader';
+import { readDocx, countImagesInDocx, countTablesInDocx, getIndexedParagraphs } from './doc-reader';
 import { readFileBuffer, fileExists } from './file-storage';
 
 /**
@@ -175,6 +175,19 @@ export async function extractWordStructure(filename: string): Promise<{
     }
   });
 
+  // Get indexed paragraphs for richer context
+  let indexedLines = '';
+  try {
+    const indexed = await getIndexedParagraphs(filename);
+    indexedLines = '\nINDEXED BLOCKS (use with get_paragraph_index, insert_at_index etc):\n' +
+      indexed.slice(0, 30).map(b => {
+        const tag = b.type === 'heading' ? `[H${b.level}]` : b.type === 'table' ? '[TABLE]' : b.type === 'image' ? '[IMAGE]' : '[P]';
+        const preview = b.isEmpty ? '(empty)' : b.text.slice(0, 70) + (b.text.length > 70 ? '…' : '');
+        return `  [${b.index}] ${tag} ${preview}`;
+      }).join('\n') +
+      (indexed.length > 30 ? `\n  ... (${indexed.length - 30} more blocks)` : '');
+  } catch {}
+
   const structure = elements.map((el) => {
     const prefix = el.id;
     if (el.type === 'heading') return `  ${prefix} [H${el.level}] ${el.content}`;
@@ -193,7 +206,7 @@ export async function extractWordStructure(filename: string): Promise<{
     wordCount: model.wordCount,
     imageCount,
     tableCount,
-    structure: `Document: ${filename}\nTitle: ${model.title}\nWords: ${model.wordCount}${extra.length ? '\nContains: ' + extra.join(', ') : ''}\nElements (${elements.length}):\n${structure}`
+    structure: `Document: ${filename}\nTitle: ${model.title}\nWords: ${model.wordCount}${extra.length ? '\nContains: ' + extra.join(', ') : ''}\nElements (${elements.length}):\n${structure}${indexedLines}`
   };
 }
 
