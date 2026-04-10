@@ -1,0 +1,152 @@
+▲ Next.js 16.2.1 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.43.89:3000
+- Environments: .env
+✓ Ready in 631ms
+⚠ Attempted to load @next/swc-win32-x64-msvc, but an error occurred: \\?\C:\Users\User\Desktop\pro\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node is not a valid Win32 application.
+\\?\C:\Users\User\Desktop\pro\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of C:\Users\User\package-lock.json as the root directory.
+ To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+ Detected additional lockfiles: 
+   * C:\Users\User\Desktop\pro\package-lock.json
+
+  Skipping creating a lockfile at C:\Users\User\Desktop\pro\.next\dev\lock because we're using WASM bindings
+
+(node:30064) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+ GET / 200 in 1724ms (next.js: 1505ms, application-code: 219ms)
+ GET /api/files 200 in 2.9s (next.js: 2.9s, application-code: 20ms)
+ GET / 200 in 101ms (next.js: 53ms, application-code: 48ms)
+ GET / 200 in 104ms (next.js: 39ms, application-code: 65ms)
+ POST /api/chat 200 in 7.9s (next.js: 4.2s, application-code: 3.7s)
+ GET /api/files 200 in 22ms (next.js: 11ms, application-code: 11ms)
+ GET /api/preview?filename=quarterly_revenue.xlsx 200 in 547ms (next.js: 526ms, application-code: 21ms)
+ GET / 200 in 42ms (next.js: 22ms, application-code: 21ms)
+ GET / 200 in 35ms (next.js: 3ms, application-code: 32ms)
+ GET / 200 in 31ms (next.js: 2ms, application-code: 28ms)
+ GET / 200 in 105ms (next.js: 9ms, application-code: 96ms)
+ GET / 200 in 33ms (next.js: 1990µs, application-code: 31ms)
+ POST /api/chat 200 in 6.3s (next.js: 112ms, application-code: 6.1s)
+ GET /api/files 200 in 18ms (next.js: 7ms, application-code: 11ms)
+ GET /api/preview?filename=dinosaurs.docx 200 in 48ms (next.js: 3ms, application-code: 45ms)
+ GET /api/preview?filename=dinosaurs.docx 200 in 32ms (next.js: 3ms, application-code: 30ms)
+ GET /api/files?action=download&filename=dinosaurs.docx 200 in 8ms (next.js: 4ms, application-code: 4ms)
+ GET / 200 in 30ms (next.js: 3ms, application-code: 27ms)
+ POST /api/chat 200 in 2.0s (next.js: 3ms, application-code: 2.0s)
+ GET /api/files 200 in 12ms (next.js: 3ms, application-code: 9ms)
+ GET /api/preview?filename=dinosaurs.docx 200 in 31ms (next.js: 2ms, application-code: 29ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 98978, Requested 3164. Please try again in 30m50.688s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ POST /api/chat 200 in 2.6s (next.js: 1652µs, application-code: 2.6s)
+ GET /api/files 200 in 8ms (next.js: 3ms, application-code: 5ms)
+ GET / 200 in 34ms (next.js: 2ms, application-code: 31ms)
+ GET /api/preview?filename=dinosaurs.docx 200 in 25ms (next.js: 3ms, application-code: 22ms)
+ GET /api/files?action=download&filename=dinosaurs.docx 200 in 8ms (next.js: 2ms, application-code: 5ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 98895, Requested 2773. Please try again in 24m1.152s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ GET / 200 in 39ms (next.js: 4ms, application-code: 36ms)
+ POST /api/chat 200 in 13.1s (next.js: 1902µs, application-code: 13.1s)
+ GET /api/files 200 in 6ms (next.js: 1871µs, application-code: 4ms)
+ GET / 200 in 35ms (next.js: 1926µs, application-code: 33ms)
+ GET /api/preview?filename=dinosaurs.docx 200 in 71ms (next.js: 5ms, application-code: 66ms)
+  Reload env: .env
+ GET / 200 in 121ms (next.js: 98ms, application-code: 22ms)
+ GET / 200 in 93ms (next.js: 25ms, application-code: 67ms)
+ GET / 200 in 31ms (next.js: 4ms, application-code: 26ms)
+ GET / 200 in 49ms (next.js: 3ms, application-code: 46ms)
+ GET / 200 in 25ms (next.js: 4ms, application-code: 21ms)
+ GET / 200 in 30ms (next.js: 5ms, application-code: 25ms)
+ GET / 200 in 23ms (next.js: 2ms, application-code: 20ms)
+ GET / 200 in 20ms (next.js: 3ms, application-code: 17ms)
+ GET / 200 in 20ms (next.js: 2ms, application-code: 17ms)
+ GET / 200 in 42ms (next.js: 3ms, application-code: 39ms)
+ GET /api/files?action=download&filename=dinosaurs.docx 200 in 848ms (next.js: 831ms, application-code: 17ms)
+ GET / 200 in 99ms (next.js: 47ms, application-code: 53ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97636, Requested 3055. Please try again in 9m57.024s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ POST /api/chat 200 in 5.7s (next.js: 2.8s, application-code: 2.9s)
+ GET /api/files 200 in 426ms (next.js: 419ms, application-code: 7ms)
+ GET / 200 in 103ms (next.js: 20ms, application-code: 83ms)
+ GET /api/preview?filename=dinosaurs.docx 200 in 1689ms (next.js: 1503ms, application-code: 185ms)
+ GET /api/files?action=download&filename=dinosaurs.docx 200 in 12ms (next.js: 4ms, application-code: 8ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97575, Requested 3119. Please try again in 9m59.616s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ POST /api/chat 200 in 2.7s (next.js: 259ms, application-code: 2.5s)
+ GET /api/files 200 in 11ms (next.js: 4ms, application-code: 7ms)
+ GET /api/preview?filename=dinosaurs.docx 200 in 44ms (next.js: 1641µs, application-code: 42ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97546, Requested 3149. Please try again in 10m0.48s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97544, Requested 3149. Please try again in 9m58.752s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97531, Requested 3149. Please try again in 9m47.52s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ POST /api/chat 200 in 46s (next.js: 4ms, application-code: 46s)
+ GET /api/files 200 in 9ms (next.js: 3ms, application-code: 6ms)
+ GET /api/preview?filename=dinosaurs.docx 200 in 48ms (next.js: 2ms, application-code: 46ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97431, Requested 3175. Please try again in 8m43.584s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ GET / 200 in 101ms (next.js: 13ms, application-code: 89ms)
+ POST /api/chat 200 in 4.2s (next.js: 2ms, application-code: 4.2s)
+ GET /api/files 200 in 6ms (next.js: 1323µs, application-code: 5ms)
+ GET / 200 in 41ms (next.js: 8ms, application-code: 34ms)
+ GET /api/preview?filename=dinosaurs.docx 200 in 42ms (next.js: 3ms, application-code: 39ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97400, Requested 3168. Please try again in 8m10.752s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ POST /api/chat 200 in 2.4s (next.js: 3ms, application-code: 2.4s)
+ GET /api/files 200 in 5ms (next.js: 1564µs, application-code: 3ms)
+ GET /api/preview?filename=dinosaurs.docx 200 in 42ms (next.js: 5ms, application-code: 38ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97348, Requested 16764. Please try again in 3h23m12.768s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.1-8b-instant): 413 {"error":{"message":"Request too large for model `llama-3.1-8b-instant` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Requested 16850, please reduce your message size and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97345, Requested 16764. Please try again in 3h23m10.176s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.1-8b-instant): 413 {"error":{"message":"Request too large for model `llama-3.1-8b-instant` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Requested 16850, please reduce your message size and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97343, Requested 16764. Please try again in 3h23m8.448s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.1-8b-instant): 413 {"error":{"message":"Request too large for model `llama-3.1-8b-instant` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Requested 16817, please reduce your message size and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+ POST /api/chat 200 in 6.7s (next.js: 2ms, application-code: 6.7s)
+ GET /api/files 200 in 14ms (next.js: 6ms, application-code: 9ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97327, Requested 16865. Please try again in 3h24m21.887999999s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.1-8b-instant): 413 {"error":{"message":"Request too large for model `llama-3.1-8b-instant` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Requested 16918, please reduce your message size and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97325, Requested 16865. Please try again in 3h24m20.16s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.1-8b-instant): 413 {"error":{"message":"Request too large for model `llama-3.1-8b-instant` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Requested 16951, please reduce your message size and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97323, Requested 16865. Please try again in 3h24m18.432s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.1-8b-instant): 413 {"error":{"message":"Request too large for model `llama-3.1-8b-instant` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Requested 16951, please reduce your message size and try again. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+ POST /api/chat 200 in 5.6s (next.js: 1944µs, application-code: 5.6s)
+ GET /api/files 200 in 14ms (next.js: 3ms, application-code: 11ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97203, Requested 2957. Please try again in 2m18.24s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97198, Requested 2957. Please try again in 2m13.919999999s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97194, Requested 2957. Please try again in 2m10.464s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ POST /api/chat 200 in 39.8s (next.js: 1901µs, application-code: 39.7s)
+ GET /api/files 200 in 13ms (next.js: 9ms, application-code: 4ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97124, Requested 3083. Please try again in 2m58.848s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 97122, Requested 3083. Please try again in 2m57.12s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ POST /api/chat 200 in 33.8s (next.js: 1618µs, application-code: 33.8s)
+ GET /api/files 200 in 7ms (next.js: 1239µs, application-code: 6ms)
+ GET /api/preview?filename=calculator.xlsx 200 in 31ms (next.js: 1813µs, application-code: 29ms)
+ GET / 200 in 61ms (next.js: 7ms, application-code: 54ms)
+ GET /api/files?action=download&filename=calculator.xlsx 200 in 7ms (next.js: 2ms, application-code: 4ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 96966, Requested 3206. Please try again in 2m28.608s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ POST /api/chat 200 in 2.3s (next.js: 4ms, application-code: 2.3s)
+ GET /api/files 200 in 11ms (next.js: 1664µs, application-code: 10ms)
+ GET / 200 in 64ms (next.js: 3ms, application-code: 61ms)
+ GET /api/preview?filename=calculator.xlsx 200 in 19ms (next.js: 2ms, application-code: 16ms)
+Groq API Error (model: llama-3.3-70b-versatile): 429 {"error":{"message":"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01jqecbfpze4ktp0fb005gga1z` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 96946, Requested 3220. Please try again in 2m23.424s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing","type":"tokens","code":"rate_limit_exceeded"}}
+Rate limited on model, switching to: llama-3.1-8b-instant
+ POST /api/chat 200 in 2.6s (next.js: 5ms, application-code: 2.6s)
+ GET /api/files 200 in 11ms (next.js: 3ms, application-code: 9ms)
+ GET / 200 in 21ms (next.js: 1701µs, application-code: 20ms)
+ GET /api/preview?filename=calculator.xlsx 200 in 17ms (next.js: 3ms, application-code: 15ms)
+ GET /api/files 200 in 9ms (next.js: 3ms, application-code: 6ms)
+[?25h
