@@ -24,6 +24,14 @@ import {
   embedImagePositionedInDocx, addHighlightParagraphToDocx,
   setParagraphSpacingToDocx, setFirstLineIndentToDocx,
   clearAllContentFromDocx, addColumnBreakToDocx,
+  // NEW: indexed paragraph access
+  getIndexedParagraphs, insertBeforeIndex, insertAfterIndex,
+  replaceAtIndex, deleteAtIndex, formatAtIndex, replaceTextAtIndex,
+  duplicateAtIndex, moveBlockToIndex,
+  getDocumentXml, setDocumentXml,
+  mergeTableCellsInDocx,
+  // NEW: full Excel read + bulk update
+  readSpreadsheetFull, bulkUpdateCells,
 } from './doc-reader';
 import { renderChart, renderChartBase64, buildChartFromData, detectChartType, type ChartConfig } from './chart-engine';
 
@@ -31,77 +39,240 @@ import { renderChart, renderChartBase64, buildChartFromData, detectChartType, ty
 // TOOL DEFINITIONS
 // ═══════════════════════════════════════════════════════════════════════════════════
 
-export const TOOL_DEFINITIONS = `You are OfficeAI. You have EXACTLY 9 TOOLS. Always return valid JSON: {"thinking":"...","tool_calls":[{...}],"message":"..."}
+export const TOOL_DEFINITIONS = `You are OfficeAI — a powerful document AI with FULL surgical control over every Word and Excel file. Always return valid JSON: {"thinking":"...","tool_calls":[{...}],"message":"..."}
 
-=== THE 9 TOOLS (use in "tool_calls" array) ===
+═══════════════════════════════════════════════════════════════
+THE 14 TOOLS  (use in "tool_calls" array only)
+═══════════════════════════════════════════════════════════════
 
-1. create_document - Create a new Word document
-   { "tool":"create_document", "filename":"report.docx", "title":"Report Title", "sections":[{heading,content,bullets,numberedItems,table:{headers,rows}}] }
+─── WORD DOCUMENTS ────────────────────────────────────────────
 
-2. edit_document - Edit an EXISTING Word document (operations go in "operations" array)
-   { "tool":"edit_document", "filename":"report.docx", "operations":[{type:"add_heading",heading:"New Section"},{type:"add_paragraph",content:"text"}] }
+1. read_document   { "tool":"read_document", "filename":"f.docx" }
+   Returns full text, word count, all elements.
 
-3. create_spreadsheet - Create a new Excel spreadsheet
-   { "tool":"create_spreadsheet", "filename":"budget.xlsx", "sheets":[{name:"Sheet1",headers:["Col1","Col2"],data:[["a","b"]],formulas:{"C1":"=SUM(A1:B1)"},styles:{headerBg:"2D3748"}}] }
+2. get_paragraph_index   { "tool":"get_paragraph_index", "filename":"f.docx" }
+   ★ USE THIS BEFORE EDITING. Returns every block with its index number:
+   [0] [H1] Title text
+   [1] [P]  Paragraph text...
+   [2] [TABLE 3 rows] Col1 | Col2
+   Then use those index numbers for precise insert/replace/delete/format.
 
-4. edit_spreadsheet - Edit an EXISTING Excel spreadsheet (operations go in "operations" array)
-   { "tool":"edit_spreadsheet", "filename":"budget.xlsx", "sheet":"Sheet1", "operations":[{type:"add_row",data:[1,2,3]},{type:"update_cell",cell:"A1",value:"Hello"}] }
+3. create_document   { "tool":"create_document", "filename":"r.docx", "title":"T", "sections":[{heading,content,bullets,numberedItems,table:{headers,rows}}] }
 
-5. read_document - Read content of a Word document
-   { "tool":"read_document", "filename":"report.docx" }
+4. edit_document   { "tool":"edit_document", "filename":"f.docx", "operations":[...] }
 
-6. analyze_file - Analyze structure of any file
-   { "tool":"analyze_file", "filename":"budget.xlsx" }
+─── EXCEL SPREADSHEETS ────────────────────────────────────────
 
-7. list_files - List all files in storage
-   { "tool":"list_files" }
+5. read_spreadsheet_full   { "tool":"read_spreadsheet_full", "filename":"f.xlsx", "sheet":"Sheet1" }
+   ★ Returns ALL cells with values, formulas, and styles — so you know exactly what's there before editing.
 
-8. delete_file - Delete a file
-   { "tool":"delete_file", "filename":"old.docx" }
+6. create_spreadsheet   { "tool":"create_spreadsheet", "filename":"f.xlsx", "sheets":[{name,headers,data,formulas,styles}] }
 
-9. rename_file - Rename a file
-   { "tool":"rename_file", "filename":"old.docx", "new_filename":"new.docx" }
+7. edit_spreadsheet   { "tool":"edit_spreadsheet", "filename":"f.xlsx", "sheet":"Sheet1", "operations":[...] }
 
-=== WORD OPERATIONS (use inside edit_document "operations" array ONLY) ===
-TEXT: replace_text(find,replace), add_heading(heading,level), add_paragraph(content), add_content(content), add_bullet_list(items), add_numbered_list(items,startNumber)
-STYLE: set_text_style(find,bold,italic,color,fontSize,font,underline), clear_content(search), delete_element(search), add_highlight_paragraph(text,highlight,bold,color)
-TABLE: add_table(headers,rows), add_table_row(table_index,data), update_table_cell(table_index,row,col,value), delete_table_row(table_index,row), format_table_cell(table_index,row,col,bg,bold,color,font,fontSize,align), add_table_column(table_index,header,values), delete_table_column(table_index,col), delete_table(table_index), set_table_width(table_index,width,widthType,alignment), set_table_column_widths(table_index,widths[]), count_tables
-SECTION: add_section(heading,content,bullets,table), add_page_break, add_separator, add_section_break(type), add_column_break
-LAYOUT: set_margins(top,bottom,left,right), set_orientation(portrait|landscape), set_columns(count,spacing,separator), set_first_line_indent(twips), set_paragraph_spacing(before,after,lineSpacing)
-HEADER/FOOTER: add_header(text), add_footer(text), add_page_number, add_formatted_page_numbers(format,alignment,showTotal,font,fontSize,color), remove_header, remove_footer
-GRAPHICS: add_chart(chart_type,labels,values,title,colors,width,height,showLegend,showValues,currency), add_image(image_base64,width,height,align,wrapStyle,x,y), add_text_box(text,width,height,fillColor,borderColor,fontSize,bold,color,alignment,x,y), delete_image(image_index), delete_table(table_index), count_images
-LINKS: add_hyperlink(text,url,color,underline), add_table_of_contents
-DOCUMENT: set_font(font), set_line_spacing(spacing), add_watermark(text,color,fontSize,font), add_page_border(style,color,size), add_drop_cap(text,lines,font,color), add_tab_stop_paragraph(text,tabStops,fontSize,bold,color), add_bookmark(name,text), clear_all_content
-CHART OPTIONS: chart_type=pie|bar|line|doughnut|horizontalBar|area|radar|scatter, colors=["FF0000","00FF00"], showLegend=true/false, showValues=true/false, currency=true/false
+8. bulk_update_cells   { "tool":"bulk_update_cells", "filename":"f.xlsx", "sheet":"Sheet1",
+     "updates":[{"cell":"A1","value":"hello"},{"cell":"B2","formula":"=SUM(A1:A10)","style":{"bold":true,"bgColor":"FFD700"}}] }
+   ★ Most efficient way to update many cells at once with values, formulas, AND styling in one call.
 
-=== EXCEL OPERATIONS (use inside edit_spreadsheet "operations" array ONLY) ===
-DATA: add_row(data), add_multiple_rows(rows), update_cell(cell,value), set_formula(cell,formula), add_column(header,values), insert_row(row,data), insert_column(column,header,values), replace_text(find,replace), delete_row(row), delete_column(column), copy_range(source,destination)
-STYLE: set_cell_style(cell,bold,italic,fontColor,bgColor,fontSize,fontName,borderColor,borderStyle,alignment,wrapText), set_range_style(range,bold,italic,fontColor,bgColor,fontSize,alignment,wrapText), set_number_format(cell,format), set_column_width(column,width), set_row_height(row,height), set_alignment(cell,horizontal,vertical,wrapText), set_borders(range,style,sides,color), set_tab_color(color)
-LAYOUT: freeze_panes(cell), unfreeze_panes, merge_cells(range), unmerge_cells(range)
-SHEETS: add_sheet(name), rename_sheet(old_name,new_name), delete_sheet(name), copy_sheet(source,name)
-CHARTS: add_chart(chart_type,title,labels,values,label_col,value_col,from_row,to_row,width,height,chart_row,chart_col,colors,showLegend), delete_chart(index), delete_image(index)
-CONDITIONAL: add_conditional_format(range,condition,value,style:{fontColor,bgColor}), remove_conditional_format(range)
-VALIDATION: add_data_validation(range,validation_type,values,min,max,operator,allow_blank), remove_data_validation(range)
-FILTER/SORT: sort(column,order), set_auto_filter(range), remove_auto_filter, set_print_area(range), set_page_setup(orientation,paperSize,fitToPage,fitToWidth,fitToHeight,margins)
-COMMENTS: add_comment(cell,text), remove_comment(cell)
-LINKS: add_hyperlink_cell(cell,url,text), remove_hyperlink(cell)
-PROTECTION: protect_sheet(password), unprotect_sheet
-NAMED: add_named_range(range,name)
-PRINT: set_print_titles(rows,columns), set_print_options(gridlines,headings,blackAndWhite)
-CLEAR: clear_range(range,mode), clear_content(range), clear_format(range), clear_all(range)
-OUTLINE: group_rows(start,end,level), ungroup_rows(start,end)
+─── FILE MANAGEMENT ───────────────────────────────────────────
 
-=== CRITICAL RULES ===
-- ONLY use the 9 tools listed above in "tool_calls". Operations like add_row, update_cell etc. are NOT tools!
-- Operations go INSIDE the "operations" array of edit_document or edit_spreadsheet.
-- NEVER call an operation as a standalone tool. Example WRONG: {"tool":"add_row"} Example RIGHT: {"tool":"edit_spreadsheet","operations":[{"type":"add_row","data":[1,2]}]}
-- Colors: FF0000 red, 00FF00 green, 1E40AF blue, 2D3748 dark, FFFFFF white
-- Formulas use = prefix: "=SUM(A1:A10)". table_index is 0-based. ACTIVE FILE is default target.
-- Chart colors is array of hex strings: ["FF0000","00FF00","0000FF"]
-- Excel number formats: $#,##0.00 (currency), 0.00% (percentage), #,##0 (integer), mm/dd/yyyy (date)
-- Word column widths in twips (1 inch = 1440 twips). Margins in twips.
-- Wrap styles for images: inline, square, tight, behind, inFront
-- Section break types: nextPage, continuous, evenPage, oddPage`;
+9.  analyze_file    { "tool":"analyze_file", "filename":"f.xlsx" }
+10. list_files      { "tool":"list_files" }
+11. delete_file     { "tool":"delete_file", "filename":"f.docx" }
+12. rename_file     { "tool":"rename_file", "filename":"old.docx", "new_filename":"new.docx" }
+
+─── ADVANCED ──────────────────────────────────────────────────
+
+13. get_document_xml   { "tool":"get_document_xml", "filename":"f.docx" }
+    Returns raw Word XML body. Use when you need to understand exact structure or troubleshoot.
+
+14. set_document_xml   { "tool":"set_document_xml", "filename":"f.docx", "xml":"<w:body>...</w:body>" }
+    ★ NUCLEAR OPTION: Replace entire document body with provided XML. Full surgical control.
+
+═══════════════════════════════════════════════════════════════
+WORD OPERATIONS  (inside edit_document "operations" array)
+═══════════════════════════════════════════════════════════════
+
+─── PRECISION INDEXED OPERATIONS (use after get_paragraph_index) ───
+insert_before_index(index, content_xml)         Insert XML before block at index
+insert_after_index(index, content_xml)          Insert XML after block at index
+replace_at_index(index, content_xml)            Replace entire block at index with new XML
+replace_text_at_index(index, text)              Replace text of paragraph at index, preserve formatting
+delete_at_index(index)                          Delete block at index
+format_at_index(index, bold?, italic?, underline?, color?, font?, fontSize?, alignment?,
+  headingLevel?, indent?, spaceBefore?, spaceAfter?, lineSpacing?, highlight?)
+duplicate_at_index(index)                       Duplicate block at index
+move_to_index(source_index, dest_index)         Move block from source to dest position
+
+─── TEXT OPERATIONS ───
+replace_text(find, replace, caseSensitive?)     Replace text across document (handles split runs)
+set_text_style(find, bold?, italic?, underline?, color?, font?, fontSize?, strikethrough?)
+delete_element(search)                          Delete paragraphs containing text
+clear_content(search)                           Clear (blank out) matching text
+
+─── ADD CONTENT ───
+add_heading(heading, level?, color?)
+add_paragraph(content, bold?, italic?, color?, fontSize?, alignment?, font?, underline?)
+add_bullet_list(items[])
+add_numbered_list(items[], startNumber?)
+add_section(heading, content?, bullets?, numberedItems?, table?)
+add_page_break
+add_separator
+add_highlight_paragraph(text, highlight?, bold?, color?)
+
+─── TABLES ───
+add_table(headers[], rows[][])
+add_table_row(table_index, data[])
+update_table_cell(table_index, row, col, value)
+delete_table_row(table_index, row)
+delete_table_column(table_index, col)
+delete_table(table_index)
+format_table_cell(table_index, row, col, bg?, bold?, color?, font?, fontSize?, align?)
+add_table_column(table_index, header, values[])
+merge_table_cells(table_index, startRow, startCol, endRow, endCol)
+set_table_width(table_index, width, widthType?, alignment?)
+set_table_column_widths(table_index, widths[])
+count_tables
+
+─── LAYOUT / PAGE ───
+set_margins(top, bottom, left, right)           All in twips (1440 = 1 inch)
+set_orientation(portrait|landscape)
+set_columns(count, spacing?, separator?)
+set_font(font)
+set_line_spacing(spacing)                       1.0=single, 1.5, 2.0=double
+set_paragraph_spacing(before, after, lineSpacing?)
+set_first_line_indent(twips)
+add_section_break(nextPage|continuous|evenPage|oddPage)
+add_column_break
+clear_all_content                               Wipe document clean
+
+─── HEADER / FOOTER / PAGE NUMBERS ───
+add_header(text)
+add_footer(text)
+add_page_number
+add_formatted_page_numbers(format?, alignment?, showTotal?, font?, fontSize?, color?)
+remove_header
+remove_footer
+
+─── GRAPHICS & MEDIA ───
+add_chart(chart_type, labels[], values[], title?, colors[]?, width?, height?, showLegend?, showValues?, currency?)
+  chart_type = pie|bar|line|doughnut|horizontalBar|area|radar|scatter
+add_image(image_base64, width?, height?, align?, wrapStyle?)
+add_image_positioned(image_base64, width?, height?, x?, y?, wrapStyle?)
+delete_image(image_index)
+count_images
+add_text_box(text, width?, height?, fillColor?, borderColor?, fontSize?, bold?, color?, alignment?, x?, y?)
+add_watermark(text, color?, fontSize?, font?)
+add_page_border(style?, color?, size?)
+add_drop_cap(text, lines?, font?, color?)
+
+─── LINKS & NAVIGATION ───
+add_hyperlink(text, url, color?, underline?)
+add_table_of_contents
+add_tab_stop_paragraph(text, tabStops[], fontSize?, bold?, color?)
+add_bookmark(name, text)
+
+═══════════════════════════════════════════════════════════════
+EXCEL OPERATIONS  (inside edit_spreadsheet "operations" array)
+═══════════════════════════════════════════════════════════════
+
+─── DATA ───
+add_row(data[])
+add_multiple_rows(rows[][])
+update_cell(cell, value)
+set_formula(cell, formula)                      formula must start with =
+add_column(header, values[])
+insert_row(row, data[])
+insert_column(column, header, values[])
+delete_row(row)
+delete_column(column)
+replace_text(find, replace)
+copy_range(source, destination)
+
+─── STYLING ───
+set_cell_style(cell, bold?, italic?, fontColor?, bgColor?, fontSize?, fontName?,
+  borderColor?, borderStyle?, alignment?, wrapText?)
+set_range_style(range, bold?, italic?, fontColor?, bgColor?, fontSize?, alignment?, wrapText?)
+set_number_format(cell, format)                 "$#,##0.00" | "0.00%" | "#,##0" | "mm/dd/yyyy"
+set_column_width(column, width)
+set_row_height(row, height)
+set_alignment(cell, horizontal, vertical?, wrapText?)
+set_borders(range, style, sides?, color?)
+set_tab_color(color)
+
+─── LAYOUT ───
+freeze_panes(cell)
+unfreeze_panes
+merge_cells(range)
+unmerge_cells(range)
+set_auto_filter(range)
+remove_auto_filter
+set_print_area(range)
+set_page_setup(orientation?, paperSize?, fitToPage?, fitToWidth?, fitToHeight?, margins?)
+
+─── SHEETS ───
+add_sheet(name)
+rename_sheet(old_name, new_name)
+delete_sheet(name)
+copy_sheet(source, name)
+
+─── CHARTS ───
+add_chart(chart_type, title, labels?, values?, label_col?, value_col?, from_row?, to_row?,
+  width?, height?, chart_row?, chart_col?, colors[]?, showLegend?)
+delete_chart(index)
+
+─── CONDITIONAL FORMATTING ───
+add_conditional_format(range, condition, value, style:{fontColor?,bgColor?})
+remove_conditional_format(range)
+
+─── DATA VALIDATION ───
+add_data_validation(range, validation_type, values[]?, min?, max?, operator?, allow_blank?)
+remove_data_validation(range)
+
+─── OTHER ───
+add_comment(cell, text)
+remove_comment(cell)
+add_hyperlink_cell(cell, url, text?)
+protect_sheet(password?)
+unprotect_sheet
+add_named_range(range, name)
+sort(column, order?)
+group_rows(start, end, level?)
+ungroup_rows(start, end)
+clear_range(range, mode?)
+add_image(image_base64, width?, height?, row?, col?)
+
+═══════════════════════════════════════════════════════════════
+WORKFLOW RULES — FOLLOW THESE
+═══════════════════════════════════════════════════════════════
+
+★ ALWAYS READ BEFORE EDITING:
+  - For Word: call get_paragraph_index FIRST. Use index numbers for precise edits.
+  - For Excel: call read_spreadsheet_full or analyze_file FIRST to see actual data.
+  - Never guess at structure — always verify with a read tool first.
+
+★ FOR WORD PRECISION EDITING:
+  1. get_paragraph_index → see all blocks with numbers
+  2. Use insert_before_index/replace_at_index/delete_at_index/format_at_index
+  3. Never use replace_text for structural changes — use indexed operations
+
+★ FOR EXCEL PRECISION EDITING:
+  1. read_spreadsheet_full → see every cell, formula, and value
+  2. Use bulk_update_cells for updating many cells — most efficient
+  3. Use set_formula for formulas, update_cell for values
+
+★ MULTI-STEP EXECUTION:
+  - Chain multiple tool_calls in one response
+  - Read → Edit → Read again to verify if needed
+  - Use corrections to fix issues automatically
+
+★ COLORS: 6-digit hex without #: FF0000=red, 00FF00=green, FFD700=gold,
+  1E40AF=blue, 2D3748=dark, FFFFFF=white, 000000=black
+★ FORMULAS: always prefix with =  e.g. "=SUM(A2:A10)"
+★ TWIPS: 1440 per inch. Common margins: 1440=1in, 720=0.5in, 1080=0.75in
+★ Table/image indices are 0-based
+★ Paragraph indices from get_paragraph_index are 0-based
+★ Excel column widths: 10-20 typical, 25+ for long text`;
 
 // ═══════════════════════════════════════════════════════════════════════════════════
 // INTERFACES
@@ -162,12 +333,17 @@ export async function executeTool(
       case 'create_document': return await createDocument(toolCall, onProgress);
       case 'create_spreadsheet': return await createSpreadsheet(toolCall, onProgress);
       case 'read_document': return await readDocumentContent(toolCall, onProgress);
+      case 'get_paragraph_index': return await getParagraphIndex(toolCall, onProgress);
       case 'edit_document': return await editDocument(toolCall, onProgress);
       case 'edit_spreadsheet': return await editSpreadsheet(toolCall, onProgress);
+      case 'read_spreadsheet_full': return await readSpreadsheetFullAction(toolCall, onProgress);
+      case 'bulk_update_cells': return await bulkUpdateCellsAction(toolCall, onProgress);
       case 'analyze_file': return await analyzeFile(toolCall, onProgress);
       case 'list_files': return listFiles();
       case 'delete_file': return deleteFileAction(toolCall.filename);
       case 'rename_file': return renameFileAction(toolCall.filename, toolCall.new_filename);
+      case 'get_document_xml': return await getDocumentXmlAction(toolCall, onProgress);
+      case 'set_document_xml': return await setDocumentXmlAction(toolCall, onProgress);
       default: {
         // Auto-fix: If AI mistakenly called a Word operation as a tool, wrap it in edit_document
         if (WORD_OPS.has(toolName) && toolCall.filename) {
@@ -570,9 +746,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          await setMargins(filename, {
-            top: op.top, bottom: op.bottom, left: op.left, right: op.right,
-          });
+          await setMargins(filename, op.top || 1440, op.bottom || 1440, op.left || 1440, op.right || 1440);
           editResults.push('Margins set');
           break;
         }
@@ -637,7 +811,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
           const url = op.url || op.href || '';
           const text = op.text || url;
           if (url) {
-            await addHyperlinkToDocx(filename, text, url, { color: op.color, underline: op.underline });
+            await addHyperlinkToDocx(filename, text, url, op.color, op.underline !== false);
             editResults.push('Added hyperlink: ' + text);
           } else {
             editResults.push('Hyperlink: no URL provided');
@@ -898,13 +1072,15 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          const result = await addTextBoxToDocx(filename, op.text || op.content || '', {
-            width: op.width, height: op.height,
-            fillColor: op.fillColor || op.fill, borderColor: op.borderColor || op.border,
-            borderWidth: op.borderWidth, fontSize: op.fontSize, bold: op.bold,
-            color: op.color, alignment: op.alignment, x: op.x, y: op.y,
-          });
-          editResults.push(result.message);
+          await addTextBoxToDocx(filename, op.text || op.content || '',
+            op.width || 200, op.height || 100,
+            op.fillColor || op.fill || 'FFFFFF',
+            op.borderColor || op.border || '000000',
+            op.fontSize || 12, op.bold || false,
+            op.color || '000000', op.alignment || 'left',
+            op.x || 0, op.y || 0
+          );
+          editResults.push('Added text box');
           break;
         }
 
@@ -914,10 +1090,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          await addPageBorderToDocx(filename, {
-            style: op.style || 'single', color: op.color || '000000',
-            size: op.size, space: op.space,
-          });
+          await addPageBorderToDocx(filename, op.style || 'single', op.color || '000000', op.size || 4);
           editResults.push('Added page border');
           break;
         }
@@ -939,9 +1112,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          await setColumnsInDocx(filename, op.count || 2, {
-            spacing: op.spacing, separator: op.separator, width: op.column_width,
-          });
+          await setColumnsInDocx(filename, op.count || 2, op.spacing || 720, op.separator || false);
           editResults.push('Set ' + (op.count || 2) + ' columns');
           break;
         }
@@ -959,9 +1130,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          await addWatermarkToDocx(filename, op.text || 'DRAFT', {
-            color: op.color, fontSize: op.fontSize, font: op.font,
-          });
+          await addWatermarkToDocx(filename, op.text || 'DRAFT', op.color || 'C0C0C0', op.fontSize || 72, op.font || 'Arial');
           editResults.push('Added watermark: ' + (op.text || 'DRAFT'));
           break;
         }
@@ -972,9 +1141,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          await addDropCapParagraphToDocx(filename, op.text || op.content || '', {
-            lines: op.lines, font: op.font, color: op.color,
-          });
+          await addDropCapParagraphToDocx(filename, op.text || op.content || '', op.lines || 3, op.font || '', op.color || '');
           editResults.push('Added drop cap paragraph');
           break;
         }
@@ -985,9 +1152,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          await addTabStopParagraphToDocx(filename, op.text || '', op.tabStops || [], {
-            fontSize: op.fontSize, bold: op.bold, color: op.color, font: op.font,
-          });
+          await addTabStopParagraphToDocx(filename, op.text || '', op.tabStops || [], op.fontSize || 12, op.bold || false, op.color || '');
           editResults.push('Added paragraph with tab stops');
           break;
         }
@@ -998,10 +1163,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          await addFormattedPageNumbersToDocx(filename, {
-            format: op.format, alignment: op.alignment, showTotal: op.showTotal,
-            font: op.font, fontSize: op.fontSize, color: op.color,
-          });
+          await addFormattedPageNumbersToDocx(filename, op.format || 'Page {n} of {total}', op.alignment || 'center', op.showTotal !== false, op.font || '', op.fontSize || 12, op.color || '');
           editResults.push('Added formatted page numbers');
           break;
         }
@@ -1012,9 +1174,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          await setTableWidthToDocx(filename, op.table_index ?? 0, {
-            width: op.width, widthType: op.widthType, alignment: op.alignment,
-          });
+          await setTableWidthToDocx(filename, op.table_index ?? 0, op.width || 0, op.widthType || 'auto', op.alignment || 'center');
           editResults.push('Set table width');
           break;
         }
@@ -1042,10 +1202,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
           }
           if (imgBase64.length > 0) {
             const imgBuffer = Buffer.from(imgBase64, 'base64');
-            const result = await embedImagePositionedInDocx(filename, imgBuffer, {
-              width: op.width, height: op.height, align: op.align,
-              wrapStyle: op.wrapStyle || op.wrap, x: op.x, y: op.y,
-            });
+            const result = await embedImagePositionedInDocx(filename, imgBuffer, op.width || 400, op.height || 300, op.x || 0, op.y || 0, op.wrapStyle || op.wrap || 'square');
             editResults.push(result.message);
           } else {
             editResults.push('Image: no base64 data provided');
@@ -1059,10 +1216,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          await addHighlightParagraphToDocx(filename, op.text || op.content || '', {
-            highlight: op.highlight || 'yellow', bold: op.bold, italic: op.italic,
-            color: op.color, font: op.font, fontSize: op.fontSize, alignment: op.alignment,
-          });
+          await addHighlightParagraphToDocx(filename, op.text || op.content || '', op.highlight || 'yellow', op.bold || false, op.color || '');
           editResults.push('Added highlighted paragraph');
           break;
         }
@@ -1073,9 +1227,7 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
             await addToDocx(filename, addContentXml);
             addContentXml = '';
           }
-          await setParagraphSpacingToDocx(filename, {
-            before: op.before, after: op.after, lineSpacing: op.lineSpacing,
-          });
+          await setParagraphSpacingToDocx(filename, op.before || 0, op.after || 0, op.lineSpacing);
           editResults.push('Set paragraph spacing');
           break;
         }
@@ -1108,6 +1260,95 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
           const bmText = op.text || '';
           addContentXml += `<w:p><w:bookmarkStart w:id="${Date.now()}" w:name="${bmName}"/><w:r><w:t xml:space="preserve">${escapeXmlForTools(bmText)}</w:t></w:r><w:bookmarkEnd w:id="${Date.now()}"/></w:p>`;
           editResults.push('Added bookmark: ' + bmName);
+          break;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // INDEXED PARAGRAPH OPERATIONS — precision surgical editing
+        // ═══════════════════════════════════════════════════════════════════
+
+        case 'insert_before_index': {
+          if (addContentXml) { await addToDocx(filename, addContentXml); addContentXml = ''; }
+          const idx = op.index ?? 0;
+          const xml = buildContentXml(op);
+          await insertBeforeIndex(filename, idx, xml);
+          editResults.push('Inserted before index ' + idx);
+          break;
+        }
+
+        case 'insert_after_index': {
+          if (addContentXml) { await addToDocx(filename, addContentXml); addContentXml = ''; }
+          const idx = op.index ?? 0;
+          const xml = buildContentXml(op);
+          await insertAfterIndex(filename, idx, xml);
+          editResults.push('Inserted after index ' + idx);
+          break;
+        }
+
+        case 'replace_at_index': {
+          if (addContentXml) { await addToDocx(filename, addContentXml); addContentXml = ''; }
+          const idx = op.index ?? 0;
+          const xml = buildContentXml(op);
+          await replaceAtIndex(filename, idx, xml);
+          editResults.push('Replaced block at index ' + idx);
+          break;
+        }
+
+        case 'replace_text_at_index': {
+          if (addContentXml) { await addToDocx(filename, addContentXml); addContentXml = ''; }
+          const idx = op.index ?? 0;
+          const newText = op.text || op.content || '';
+          await replaceTextAtIndex(filename, idx, newText);
+          editResults.push('Replaced text at index ' + idx + ': ' + newText.slice(0, 40));
+          break;
+        }
+
+        case 'delete_at_index': {
+          if (addContentXml) { await addToDocx(filename, addContentXml); addContentXml = ''; }
+          const idx = op.index ?? 0;
+          await deleteAtIndex(filename, idx);
+          editResults.push('Deleted block at index ' + idx);
+          break;
+        }
+
+        case 'format_at_index': {
+          if (addContentXml) { await addToDocx(filename, addContentXml); addContentXml = ''; }
+          const idx = op.index ?? 0;
+          await formatAtIndex(filename, idx, {
+            bold: op.bold, italic: op.italic, underline: op.underline,
+            strikethrough: op.strikethrough,
+            color: op.color, font: op.font, fontSize: op.fontSize,
+            alignment: op.alignment, headingLevel: op.headingLevel,
+            indent: op.indent, spaceBefore: op.spaceBefore,
+            spaceAfter: op.spaceAfter, lineSpacing: op.lineSpacing,
+            highlight: op.highlight,
+          });
+          editResults.push('Formatted block at index ' + idx);
+          break;
+        }
+
+        case 'duplicate_at_index': {
+          if (addContentXml) { await addToDocx(filename, addContentXml); addContentXml = ''; }
+          await duplicateAtIndex(filename, op.index ?? 0);
+          editResults.push('Duplicated block at index ' + (op.index ?? 0));
+          break;
+        }
+
+        case 'move_to_index': {
+          if (addContentXml) { await addToDocx(filename, addContentXml); addContentXml = ''; }
+          await moveBlockToIndex(filename, op.source_index ?? 0, op.dest_index ?? 0);
+          editResults.push('Moved block from ' + op.source_index + ' to ' + op.dest_index);
+          break;
+        }
+
+        case 'merge_table_cells': {
+          if (addContentXml) { await addToDocx(filename, addContentXml); addContentXml = ''; }
+          await mergeTableCellsInDocx(filename,
+            op.table_index ?? 0,
+            op.startRow ?? 0, op.startCol ?? 0,
+            op.endRow ?? 0, op.endCol ?? 0
+          );
+          editResults.push('Merged cells in table ' + (op.table_index ?? 0));
           break;
         }
 
@@ -2065,3 +2306,199 @@ function formatFileSize(bytes: number): string {
 function escapeXmlForTools(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════
+// NEW TOOL IMPLEMENTATIONS
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+/** GET_PARAGRAPH_INDEX — return all blocks with their 0-based index for precise editing */
+async function getParagraphIndex(params: any, onProgress?: (s: string, p: number) => void): Promise<ToolResult> {
+  let filename = params.filename || '';
+  if (!filename.endsWith('.docx')) filename += '.docx';
+  if (!fileExists(filename)) return { success: false, message: 'File not found: ' + filename };
+
+  onProgress?.('Reading document structure...', 40);
+
+  const blocks = await getIndexedParagraphs(filename);
+
+  const lines = blocks.map(b => {
+    let tag = '[P]';
+    if (b.type === 'heading') tag = `[H${b.level}]`;
+    else if (b.type === 'table') tag = '[TABLE]';
+    else if (b.type === 'image') tag = '[IMAGE]';
+    const preview = b.isEmpty ? '(empty)' : b.text.slice(0, 80) + (b.text.length > 80 ? '...' : '');
+    return `[${b.index}] ${tag} ${preview}`;
+  });
+
+  const output = `Document: ${filename}\n${blocks.length} blocks:\n\n` + lines.join('\n');
+  onProgress?.('Done!', 100);
+
+  return {
+    success: true,
+    message: output,
+    filename,
+    preview: blocks.length + ' blocks indexed',
+    progress: 100,
+    data: blocks,
+  };
+}
+
+/** READ_SPREADSHEET_FULL — return all cells, formulas, and structure */
+async function readSpreadsheetFullAction(params: any, onProgress?: (s: string, p: number) => void): Promise<ToolResult> {
+  let filename = params.filename || '';
+  if (!filename.endsWith('.xlsx')) filename += '.xlsx';
+  if (!fileExists(filename)) return { success: false, message: 'File not found: ' + filename };
+
+  onProgress?.('Reading spreadsheet...', 30);
+
+  const sheets = await readSpreadsheetFull(filename, params.sheet);
+  const summary = sheets.map(s => {
+    const cellLines: string[] = [];
+    s.grid.forEach((row, ri) => {
+      row.forEach((val, ci) => {
+        if (val && val.trim()) {
+          const addr = colLetterFromIndex(ci) + (ri);
+          const formula = s.formulas[addr] ? ` [=${s.formulas[addr].replace(/^=/, '')}]` : '';
+          cellLines.push(`  ${addr}: ${val}${formula}`);
+        }
+      });
+    });
+    return `Sheet "${s.name}" (${s.rowCount} rows × ${s.colCount} cols)\nHeaders: ${s.headers.join(', ')}\nCells:\n${cellLines.slice(0, 100).join('\n')}${cellLines.length > 100 ? '\n  ... (' + (cellLines.length - 100) + ' more cells)' : ''}`;
+  }).join('\n\n---\n\n');
+
+  onProgress?.('Done!', 100);
+  return {
+    success: true,
+    message: summary,
+    filename,
+    preview: sheets.map(s => s.name + ': ' + s.rowCount + ' rows').join(', '),
+    progress: 100,
+    data: sheets,
+  };
+}
+
+function colLetterFromIndex(ci: number): string {
+  let col = ci; // 0-based
+  let s = '';
+  col++; // make 1-based
+  while (col > 0) {
+    col--;
+    s = String.fromCharCode(65 + (col % 26)) + s;
+    col = Math.floor(col / 26);
+  }
+  return s;
+}
+
+/** BULK_UPDATE_CELLS — update many cells at once with values, formulas, and styles */
+async function bulkUpdateCellsAction(params: any, onProgress?: (s: string, p: number) => void): Promise<ToolResult> {
+  let filename = params.filename || '';
+  if (!filename.endsWith('.xlsx')) filename += '.xlsx';
+  if (!fileExists(filename)) return { success: false, message: 'File not found: ' + filename };
+
+  const sheetName = params.sheet || params.sheetName;
+  const updates = params.updates || [];
+
+  if (!updates.length) return { success: false, message: 'No updates provided' };
+
+  onProgress?.('Updating ' + updates.length + ' cells...', 40);
+
+  const result = await bulkUpdateCells(filename, sheetName, updates);
+  onProgress?.('Done!', 100);
+
+  return {
+    success: true,
+    message: `Updated ${result.updated} cells in ${filename}`,
+    filename,
+    preview: result.updated + ' cells updated',
+    progress: 100,
+  };
+}
+
+/** GET_DOCUMENT_XML — return raw Word XML for inspection */
+async function getDocumentXmlAction(params: any, onProgress?: (s: string, p: number) => void): Promise<ToolResult> {
+  let filename = params.filename || '';
+  if (!filename.endsWith('.docx')) filename += '.docx';
+  if (!fileExists(filename)) return { success: false, message: 'File not found: ' + filename };
+
+  onProgress?.('Reading XML...', 50);
+  const xml = await getDocumentXml(filename);
+  // Truncate for readability — show first 8000 chars
+  const truncated = xml.length > 8000 ? xml.slice(0, 8000) + '\n... [truncated, ' + xml.length + ' total chars]' : xml;
+  onProgress?.('Done!', 100);
+
+  return {
+    success: true,
+    message: truncated,
+    filename,
+    preview: xml.length + ' chars of XML',
+    progress: 100,
+  };
+}
+
+/** SET_DOCUMENT_XML — write raw Word XML (full control) */
+async function setDocumentXmlAction(params: any, onProgress?: (s: string, p: number) => void): Promise<ToolResult> {
+  let filename = params.filename || '';
+  if (!filename.endsWith('.docx')) filename += '.docx';
+  if (!fileExists(filename)) return { success: false, message: 'File not found: ' + filename };
+
+  const xml = params.xml || params.body_xml || '';
+  if (!xml) return { success: false, message: 'No XML provided' };
+
+  onProgress?.('Writing document XML...', 50);
+  await setDocumentXml(filename, xml);
+  onProgress?.('Done!', 100);
+
+  return {
+    success: true,
+    message: 'Set document XML for ' + filename + ' (' + xml.length + ' chars)',
+    filename,
+    preview: 'Raw XML applied',
+    progress: 100,
+  };
+}
+
+/** Helper: build XML string from an insert/replace operation's content fields */
+function buildContentXml(op: any): string {
+  // If raw XML provided, use it directly
+  if (op.content_xml) return op.content_xml;
+
+  let xml = '';
+
+  // Heading
+  if (op.heading || (op.type_content === 'heading' && op.text)) {
+    const text = op.heading || op.text;
+    const level = op.level || 2;
+    const color = op.color || '1E40AF';
+    xml += coloredHeadingXml(text, level, color);
+  }
+
+  // Paragraph text
+  if (op.content || op.text) {
+    const text = op.content || op.text;
+    if (op.bold || op.italic || op.color || op.fontSize || op.alignment || op.font || op.underline || op.highlight) {
+      xml += styledParagraphXml(text, {
+        bold: op.bold, italic: op.italic, underline: op.underline,
+        color: op.color, font: op.font, fontSize: op.fontSize,
+        alignment: op.alignment, highlight: op.highlight,
+      });
+    } else {
+      xml += paragraphXml(text);
+    }
+  }
+
+  // Bullet list
+  if (op.bullets && op.bullets.length > 0) xml += bulletListXml(op.bullets);
+  if (op.items && op.items.length > 0) xml += bulletListXml(op.items);
+
+  // Table
+  if (op.table && op.table.headers) xml += tableXml(op.table.headers, op.table.rows || []);
+
+  // Page break
+  if (op.page_break) xml += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+
+  // Separator
+  if (op.separator) xml += '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="CBD5E0"/></w:pBdr></w:pPr></w:p>';
+
+  return xml || paragraphXml(op.text || op.content || '');
+}
+
