@@ -607,18 +607,61 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
       // Infer operation type if not explicitly provided
       let opType = op.type;
       if (!opType) {
-        if (op.find !== undefined && op.replace !== undefined) opType = 'replace_text';
-        else if (op.find !== undefined && (op.bold !== undefined || op.color !== undefined || op.font !== undefined)) opType = 'set_text_style';
+        // TEXT OPERATIONS
+        if ((op.find !== undefined || op.old !== undefined) && (op.replace !== undefined || op.new !== undefined)) opType = 'replace_text';
+        else if ((op.find !== undefined || op.search !== undefined) && (op.bold !== undefined || op.color !== undefined || op.font !== undefined || op.fontSize !== undefined || op.italic !== undefined || op.underline !== undefined || op.strikethrough !== undefined)) opType = 'set_text_style';
+        // HEADING / PARAGRAPH
         else if (op.heading !== undefined || (op.text !== undefined && op.level !== undefined)) opType = 'add_heading';
-        else if (op.content !== undefined || op.text !== undefined) opType = 'add_paragraph';
-        else if (op.items !== undefined) opType = 'add_bullet_list';
-        else if (op.headers !== undefined && op.rows !== undefined) opType = 'add_table';
-        else if (op.data !== undefined && op.table_index !== undefined) opType = 'add_table_row';
-        else if (op.value !== undefined && op.table_index !== undefined) opType = 'update_table_cell';
-        else if (op.row !== undefined && op.table_index !== undefined) opType = 'delete_table_row';
-        else if (op.search !== undefined) opType = 'delete_element';
+        else if (op.content !== undefined || (op.text !== undefined && op.level === undefined && op.heading === undefined)) opType = 'add_paragraph';
+        else if (op.items !== undefined && Array.isArray(op.items)) opType = 'add_bullet_list';
+        else if (op.numberedItems !== undefined && Array.isArray(op.numberedItems)) opType = 'add_numbered_list';
+        // TABLE OPERATIONS
+        else if (op.headers !== undefined && Array.isArray(op.headers) && op.rows !== undefined) opType = 'add_table';
+        else if (op.data !== undefined && (op.table_index !== undefined || op.tableIndex !== undefined)) opType = 'add_table_row';
+        else if (op.value !== undefined && (op.table_index !== undefined || op.tableIndex !== undefined) && (op.row !== undefined || op.col !== undefined || op.column !== undefined)) opType = 'update_table_cell';
+        else if ((op.row !== undefined || op.rowIndex !== undefined) && (op.table_index !== undefined || op.tableIndex !== undefined) && op.value === undefined && op.data === undefined) opType = 'delete_table_row';
+        else if ((op.col !== undefined || op.column !== undefined || op.colIndex !== undefined) && (op.table_index !== undefined || op.tableIndex !== undefined) && op.value === undefined) opType = 'delete_table_column';
+        else if (op.table_index !== undefined && op.delete !== undefined) opType = 'delete_table';
+        // INDEXED OPERATIONS
+        else if (op.index !== undefined && op.content_xml !== undefined && (op.insertBefore !== undefined || op.insert_before !== undefined || op.before !== undefined)) opType = 'insert_before_index';
         else if (op.index !== undefined && op.content_xml !== undefined) opType = 'insert_after_index';
-        else if (op.index !== undefined && op.text !== undefined) opType = 'replace_text_at_index';
+        else if (op.index !== undefined && op.text !== undefined && op.content_xml === undefined && op.bold === undefined && op.color === undefined && op.font === undefined && op.fontSize === undefined && op.alignment === undefined && op.headingLevel === undefined && op.content === undefined) opType = 'replace_text_at_index';
+        else if (op.index !== undefined && (op.bold !== undefined || op.color !== undefined || op.font !== undefined || op.fontSize !== undefined || op.alignment !== undefined || op.headingLevel !== undefined || op.indent !== undefined || op.highlight !== undefined)) opType = 'format_at_index';
+        else if (op.index !== undefined && (op.delete !== undefined || op.deleteElement !== undefined || op.remove !== undefined)) opType = 'delete_at_index';
+        else if (op.source_index !== undefined && op.dest_index !== undefined) opType = 'move_to_index';
+        else if (op.index !== undefined && (op.duplicate !== undefined || op.copy !== undefined)) opType = 'duplicate_at_index';
+        // LAYOUT / PAGE
+        else if (op.top !== undefined || op.bottom !== undefined || op.left !== undefined || op.right !== undefined) opType = 'set_margins';
+        else if (op.orientation !== undefined && (typeof op.orientation === 'string')) opType = 'set_orientation';
+        else if (op.font !== undefined && op.filename === undefined && op.color === undefined && op.bold === undefined) opType = 'set_font';
+        else if (op.lineSpacing !== undefined || op.spacing !== undefined) opType = 'set_line_spacing';
+        else if (op.text !== undefined && op.url !== undefined) opType = 'add_hyperlink';
+        else if (op.chart_type !== undefined || op.type === 'chart') opType = 'add_chart';
+        else if (op.image_base64 !== undefined || op.image !== undefined) opType = 'add_image';
+        else if (op.width !== undefined && op.height !== undefined && op.x !== undefined && op.y !== undefined) opType = 'add_image_positioned';
+        else if (op.textBox !== undefined || (op.text !== undefined && op.width !== undefined && op.height !== undefined)) opType = 'add_text_box';
+        else if (op.watermark !== undefined || op.watermarkText !== undefined) opType = 'add_watermark';
+        else if (op.dropCap !== undefined) opType = 'add_drop_cap';
+        else if (op.tabStops !== undefined) opType = 'add_tab_stop_paragraph';
+        else if (op.highlight !== undefined && op.text !== undefined) opType = 'add_highlight_paragraph';
+        else if (op.before !== undefined && op.after !== undefined && op.lineSpacing !== undefined) opType = 'set_paragraph_spacing';
+        else if (op.indent !== undefined && op.firstLine !== undefined) opType = 'set_first_line_indent';
+        else if (op.clearAll !== undefined || op.clear_all !== undefined || op.clearContent !== undefined) opType = 'clear_all_content';
+        else if (op.bookmark !== undefined || op.bookmarkName !== undefined) opType = 'add_bookmark';
+        else if (op.merge !== undefined || op.mergeCells !== undefined) opType = 'merge_table_cells';
+        else if (op.tableWidth !== undefined || op.setColumnWidths !== undefined) opType = 'set_table_width';
+        else if (op.countTables !== undefined || op.count_tables !== undefined) opType = 'count_tables';
+        else if (op.countImages !== undefined || op.count_images !== undefined) opType = 'count_images';
+        else if (op.addHeader !== undefined || op.header !== undefined) opType = 'add_header';
+        else if (op.addFooter !== undefined || op.footer !== undefined) opType = 'add_footer';
+        else if (op.addPageNumber !== undefined || op.pageNumber !== undefined) opType = 'add_page_number';
+        else if (op.addPageBreak !== undefined || op.page_break !== undefined) opType = 'add_page_break';
+        else if (op.addSeparator !== undefined || op.separator !== undefined) opType = 'add_separator';
+        else if (op.addSection !== undefined || (op.heading !== undefined && op.sections !== undefined)) opType = 'add_section';
+        else if (op.removeHeader !== undefined || op.remove_header !== undefined) opType = 'remove_header';
+        else if (op.removeFooter !== undefined || op.remove_footer !== undefined) opType = 'remove_footer';
+        else if (op.formatTableCell !== undefined || op.format_table_cell !== undefined) opType = 'format_table_cell';
+        else if (op.addColumn !== undefined || op.add_table_column !== undefined) opType = 'add_table_column';
         else {
           editResults.push('Unknown operation (missing type): ' + JSON.stringify(op));
           continue;
@@ -819,6 +862,9 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
           if (search) {
             const count = await deleteElementByContent(filename, search);
             editResults.push('Deleted ' + count + ' element(s) containing "' + search + '"');
+          } else if (op.index !== undefined) {
+            await deleteAtIndex(filename, op.index);
+            editResults.push('Deleted element at index ' + op.index);
           }
           break;
         }
@@ -1423,7 +1469,60 @@ async function editSpreadsheet(params: any, onProgress?: (s: string, p: number) 
 
   for (const op of operations) {
     try {
-      switch (op.type) {
+      // Infer operation type if not explicitly provided
+      let opType = op.type;
+      if (!opType) {
+        // DATA OPERATIONS
+        if (op.data !== undefined && Array.isArray(op.data)) opType = 'add_row';
+        else if (op.rows !== undefined && Array.isArray(op.rows)) opType = 'add_multiple_rows';
+        else if (op.cell !== undefined && op.value !== undefined && !op.formula) opType = 'update_cell';
+        else if (op.formula !== undefined) opType = 'set_formula';
+        else if (op.header !== undefined && op.values !== undefined) opType = 'add_column';
+        // STYLE OPERATIONS
+        else if (op.cell !== undefined && op.style !== undefined) opType = 'set_cell_style';
+        else if (op.range !== undefined && op.style !== undefined) opType = 'set_range_style';
+        else if (op.cell !== undefined && op.format !== undefined) opType = 'set_number_format';
+        else if (op.column !== undefined && op.width !== undefined) opType = 'set_column_width';
+        else if (op.row !== undefined && op.height !== undefined) opType = 'set_row_height';
+        else if (op.cell !== undefined && op.horizontal !== undefined) opType = 'set_alignment';
+        else if (op.range !== undefined && op.borderStyle !== undefined) opType = 'set_borders';
+        // LAYOUT OPERATIONS
+        else if (op.cell !== undefined && !op.name) opType = 'freeze_panes';
+        else if (op.unfreeze !== undefined) opType = 'unfreeze_panes';
+        else if (op.range !== undefined && op.merge !== undefined) opType = 'merge_cells';
+        else if (op.range !== undefined && op.unmerge !== undefined) opType = 'unmerge_cells';
+        else if (op.name !== undefined && op.sheetName === undefined) opType = 'add_sheet';
+        else if (op.old_name !== undefined && op.new_name !== undefined) opType = 'rename_sheet';
+        else if (op.row !== undefined && op.delete !== undefined) opType = 'delete_row';
+        else if (op.column !== undefined && op.delete !== undefined) opType = 'delete_column';
+        else if (op.find !== undefined && op.replace !== undefined) opType = 'replace_text';
+        else if (op.condition !== undefined) opType = 'add_conditional_format';
+        else if (op.sort !== undefined) opType = 'sort';
+        else if (op.autoFilter !== undefined) opType = 'set_auto_filter';
+        else if (op.printArea !== undefined) opType = 'set_print_area';
+        else if (op.pageSetup !== undefined) opType = 'set_page_setup';
+        else if (op.protect !== undefined) opType = 'protect_sheet';
+        else if (op.hyperlink !== undefined && op.cell !== undefined) opType = 'add_hyperlink_cell';
+        else if (op.comment !== undefined && op.cell !== undefined) opType = 'add_comment';
+        else if (op.chart_type !== undefined) opType = 'add_chart';
+        else if (op.image_base64 !== undefined) opType = 'add_image';
+        else if (op.clearRange !== undefined || op.clear_range !== undefined) opType = 'clear_range';
+        else if (op.deleteChart !== undefined || op.delete_chart !== undefined) opType = 'delete_chart';
+        else if (op.deleteSheet !== undefined || op.delete_sheet !== undefined) opType = 'delete_sheet';
+        else if (op.copyRange !== undefined || op.copy_range !== undefined) opType = 'copy_range';
+        else if (op.copySheet !== undefined || op.copy_sheet !== undefined) opType = 'copy_sheet';
+        else if (op.groupRows !== undefined || op.group_rows !== undefined) opType = 'group_rows';
+        else if (op.ungroupRows !== undefined || op.ungroup_rows !== undefined) opType = 'ungroup_rows';
+        else if (op.tabColor !== undefined || op.tab_color !== undefined) opType = 'set_tab_color';
+        else if (op.namedRange !== undefined || op.named_range !== undefined) opType = 'add_named_range';
+        else if (op.dataValidation !== undefined || op.data_validation !== undefined) opType = 'add_data_validation';
+        else {
+          editResults.push('Unknown Excel operation (missing type): ' + JSON.stringify(op));
+          continue;
+        }
+      }
+
+      switch (opType) {
         // DATA OPERATIONS
         case 'add_row': {
           ws.addRow(op.data || []);
