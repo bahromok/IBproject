@@ -346,21 +346,31 @@ export async function executeTool(
       case 'set_document_xml': return await setDocumentXmlAction(toolCall, onProgress);
       default: {
         // Auto-fix: If AI mistakenly called a Word operation as a tool, wrap it in edit_document
-        if (WORD_OPS.has(toolName) && toolCall.filename) {
-          const op = { ...toolCall, type: toolName };
-          delete op.tool;
-          delete op.filename;
-          return await editDocument({ tool: 'edit_document', filename: toolCall.filename, operations: [op] }, onProgress);
+        if (WORD_OPS.has(toolName)) {
+          const filename = toolCall.filename || params?.filename;
+          if (filename) {
+            const op = { ...toolCall, type: toolName };
+            delete op.tool;
+            delete op.filename;
+            return await editDocument({ tool: 'edit_document', filename, operations: [op] }, onProgress);
+          }
+          return { success: false, message: `Operation "${toolName}" requires a filename. Use edit_document with filename and operations array.` };
         }
         // Auto-fix: If AI mistakenly called an Excel operation as a tool, wrap it in edit_spreadsheet
-        if (EXCEL_OPS.has(toolName) && toolCall.filename) {
-          const op = { ...toolCall, type: toolName };
-          delete op.tool;
-          delete op.filename;
-          delete op.sheet;
-          return await editSpreadsheet({ tool: 'edit_spreadsheet', filename: toolCall.filename, sheet: toolCall.sheet, operations: [op] }, onProgress);
+        if (EXCEL_OPS.has(toolName)) {
+          const filename = toolCall.filename || params?.filename;
+          const sheetName = toolCall.sheet || toolCall.sheetName || params?.sheet || 'Sheet1';
+          if (filename) {
+            const op = { ...toolCall, type: toolName };
+            delete op.tool;
+            delete op.filename;
+            delete op.sheet;
+            delete op.sheetName;
+            return await editSpreadsheet({ tool: 'edit_spreadsheet', filename, sheet: sheetName, operations: [op] }, onProgress);
+          }
+          return { success: false, message: `Operation "${toolName}" requires a filename. Use edit_spreadsheet with filename, sheet, and operations array.` };
         }
-        return { success: false, message: 'Unknown tool: ' + toolName + '. Available: create_document, create_spreadsheet, read_document, edit_document, edit_spreadsheet, analyze_file, list_files, delete_file, rename_file' };
+        return { success: false, message: 'Unknown tool: "' + toolName + '". Available tools: create_document, create_spreadsheet, read_document, get_paragraph_index, edit_document, edit_spreadsheet, read_spreadsheet_full, bulk_update_cells, analyze_file, list_files, delete_file, rename_file, get_document_xml, set_document_xml' };
       }
     }
   } catch (error: any) {
