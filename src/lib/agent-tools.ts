@@ -604,7 +604,28 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
 
   for (const op of operations) {
     try {
-      switch (op.type) {
+      // Infer operation type if not explicitly provided
+      let opType = op.type;
+      if (!opType) {
+        if (op.find !== undefined && op.replace !== undefined) opType = 'replace_text';
+        else if (op.find !== undefined && (op.bold !== undefined || op.color !== undefined || op.font !== undefined)) opType = 'set_text_style';
+        else if (op.heading !== undefined || (op.text !== undefined && op.level !== undefined)) opType = 'add_heading';
+        else if (op.content !== undefined || op.text !== undefined) opType = 'add_paragraph';
+        else if (op.items !== undefined) opType = 'add_bullet_list';
+        else if (op.headers !== undefined && op.rows !== undefined) opType = 'add_table';
+        else if (op.data !== undefined && op.table_index !== undefined) opType = 'add_table_row';
+        else if (op.value !== undefined && op.table_index !== undefined) opType = 'update_table_cell';
+        else if (op.row !== undefined && op.table_index !== undefined) opType = 'delete_table_row';
+        else if (op.search !== undefined) opType = 'delete_element';
+        else if (op.index !== undefined && op.content_xml !== undefined) opType = 'insert_after_index';
+        else if (op.index !== undefined && op.text !== undefined) opType = 'replace_text_at_index';
+        else {
+          editResults.push('Unknown operation (missing type): ' + JSON.stringify(op));
+          continue;
+        }
+      }
+      
+      switch (opType) {
         // TEXT OPERATIONS
         case 'replace_text': {
           const find = op.find || op.old || '';
