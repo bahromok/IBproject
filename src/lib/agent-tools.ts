@@ -34,6 +34,7 @@ import {
   readSpreadsheetFull, bulkUpdateCells,
 } from './doc-reader';
 import { renderChart, renderChartBase64, buildChartFromData, detectChartType, type ChartConfig } from './chart-engine';
+import { storeDocumentMemory, searchInDocuments, executeShellCommand, type DocumentMemory } from './autonomous-agent';
 
 // ═══════════════════════════════════════════════════════════════════════════════════
 // TOOL DEFINITIONS
@@ -66,7 +67,7 @@ THE 14 TOOLS  (use in "tool_calls" array only)
 5. read_spreadsheet_full   { "tool":"read_spreadsheet_full", "filename":"f.xlsx", "sheet":"Sheet1" }
    ★ Returns ALL cells with values, formulas, and styles — so you know exactly what's there before editing.
 
-6. create_spreadsheet   { "tool":"create_spreadsheet", "filename":"f.xlsx", "sheets":[{name,headers,data,formulas,styles}] }
+6. create_spreadsheet   { "tool":"create_spreadsheet", "filename":"f.xlsx", "sheets":[{name,headers,data,formulas,styles,charts:[{type,labels,values,title,row,col,width,height}]}] }
 
 7. edit_spreadsheet   { "tool":"edit_spreadsheet", "filename":"f.xlsx", "sheet":"Sheet1", "operations":[...] }
 
@@ -185,6 +186,7 @@ add_column(header, values[])
 insert_row(row, data[])
 insert_column(column, header, values[])
 delete_row(row)
+delete_row_by_content(search_text)         Delete rows containing specific text
 delete_column(column)
 replace_text(find, replace)
 copy_range(source, destination)
@@ -260,6 +262,7 @@ WORKFLOW RULES — FOLLOW THESE
   1. read_spreadsheet_full → see every cell, formula, and value
   2. Use bulk_update_cells for updating many cells — most efficient
   3. Use set_formula for formulas, update_cell for values
+  4. Use delete_row_by_content to remove rows by text content
 
 ★ MULTI-STEP EXECUTION:
   - Chain multiple tool_calls in one response
@@ -312,7 +315,7 @@ const EXCEL_OPS = new Set([
   'add_row','add_multiple_rows','update_cell','set_formula','add_column','set_cell_style',
   'set_range_style','set_number_format','set_column_width','set_row_height','freeze_panes',
   'unfreeze_panes','merge_cells','unmerge_cells','add_sheet','rename_sheet','delete_row',
-  'delete_column','insert_row','insert_column','replace_text','add_conditional_format',
+  'delete_row_by_content','delete_column','insert_row','insert_column','replace_text','add_conditional_format',
   'sort','set_auto_filter','set_print_area','set_page_setup','protect_sheet',
   'add_hyperlink_cell','add_hyperlink','add_comment','add_chart','add_image',
   'clear_range','clear_content','clear_format','clear_all','delete_image','delete_chart',
@@ -320,6 +323,7 @@ const EXCEL_OPS = new Set([
   'remove_comment','remove_auto_filter','unprotect_sheet','copy_range','copy_sheet',
   'group_rows','ungroup_rows','set_tab_color','set_print_titles','set_print_options',
   'add_named_range','set_alignment','set_borders','add_data_validation',
+  'remove_row','remove_column','delete_chart','remove_chart','unmerge','add_footer','add_header',
 ]);
 
 export async function executeTool(
@@ -347,23 +351,25 @@ export async function executeTool(
       default: {
         // Auto-fix: If AI mistakenly called a Word operation as a tool, wrap it in edit_document
         if (WORD_OPS.has(toolName)) {
-          const filename = toolCall.filename || params?.filename;
+          const filename = toolCall.filename || toolCall.file_name;
           if (filename) {
             const op = { ...toolCall, type: toolName };
             delete op.tool;
             delete op.filename;
+            delete op.file_name;
             return await editDocument({ tool: 'edit_document', filename, operations: [op] }, onProgress);
           }
           return { success: false, message: `Operation "${toolName}" requires a filename. Use edit_document with filename and operations array.` };
         }
         // Auto-fix: If AI mistakenly called an Excel operation as a tool, wrap it in edit_spreadsheet
         if (EXCEL_OPS.has(toolName)) {
-          const filename = toolCall.filename || params?.filename;
-          const sheetName = toolCall.sheet || toolCall.sheetName || params?.sheet || 'Sheet1';
+          const filename = toolCall.filename || toolCall.file_name;
+          const sheetName = toolCall.sheet || toolCall.sheetName || 'Sheet1';
           if (filename) {
             const op = { ...toolCall, type: toolName };
             delete op.tool;
             delete op.filename;
+            delete op.file_name;
             delete op.sheet;
             delete op.sheetName;
             return await editSpreadsheet({ tool: 'edit_spreadsheet', filename, sheet: sheetName, operations: [op] }, onProgress);
@@ -541,6 +547,7 @@ async function createSpreadsheet(params: any, onProgress?: (s: string, p: number
     const formulas = sheetInfo.formulas || {};
     const stl = sheetInfo.styles || {};
     const columnWidths = sheetInfo.columnWidths || [];
+    const charts = sheetInfo.charts || [];
 
     if (columnWidths.length > 0) {
       ws.columns = columnWidths.map((w: number) => ({ width: w }));
@@ -586,6 +593,41 @@ async function createSpreadsheet(params: any, onProgress?: (s: string, p: number
     if (headers.length > 0 && data.length > 0) {
       ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: data.length + 1, column: headers.length } };
     }
+
+    // Create charts if specified
+    for (const chartInfo of charts) {
+      const chartType = chartInfo.type || 'pie';
+      const chartLabels: string[] = chartInfo.labels || [];
+      const chartValues: number[] = chartInfo.values || [];
+      const chartTitle = chartInfo.title || 'Chart';
+      const chartRow = chartInfo.row || data.length + 3;
+      const chartCol = chartInfo.col || 1;
+      const chartWidth = chartInfo.width || 500;
+      const chartHeight = chartInfo.height || 350;
+
+      if (chartLabels.length > 0 && chartValues.length > 0) {
+        const { renderChart } = await import('./chart-engine');
+        const chartConfig: any = {
+          type: chartType,
+          labels: chartLabels,
+          values: chartValues,
+          title: chartTitle,
+          seriesName: chartInfo.seriesName || chartTitle,
+        };
+
+        const imageBuffer = await renderChart(chartConfig);
+
+        const imageId = wb.addImage({
+          buffer: imageBuffer,
+          extension: 'png',
+        } as any);
+
+        ws.addImage(imageId, {
+          tl: { col: chartCol - 1, row: chartRow - 1 },
+          ext: { width: chartWidth, height: chartHeight },
+        } as any);
+      }
+    }
   }
 
   onProgress?.('Saving spreadsheet...', 80);
@@ -614,7 +656,25 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
 
   for (const op of operations) {
     try {
-      switch (op.type) {
+      // Normalize operation type from multiple possible field names
+      let opType = op.type || op.tool || op.operation || op.name || '';
+      
+      // Normalize common variations and convert to lowercase with underscores
+      if (opType) {
+        opType = String(opType).toLowerCase().replace(/-/g, '_');
+      }
+      
+      // Handle "remove HR row" style requests - detect row deletion by content
+      if (!opType && op.remove !== undefined && typeof op.remove === 'string') {
+        opType = 'delete_row_by_content';
+        op.search_text = op.remove;
+      }
+      
+      if (!opType) {
+        editResults.push('Warning: Skipping operation with no type defined. Received: ' + JSON.stringify(op));
+        continue;
+      }
+      switch (opType) {
         // TEXT OPERATIONS
         case 'replace_text': {
           const find = op.find || op.old || '';
@@ -996,6 +1056,23 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
           break;
         }
 
+        // DELETE_ELEMENT_BY_CONTENT - Delete paragraphs containing specific text
+        case 'delete_element_by_content':
+        case 'delete_by_content': {
+          if (addContentXml) {
+            await addToDocx(filename, addContentXml);
+            addContentXml = '';
+          }
+          const searchText = op.search_text || op.text || op.content || op.remove || '';
+          if (!searchText) {
+            editResults.push('Error: delete_element_by_content requires search_text');
+            break;
+          }
+          const count = await deleteElementByContent(filename, searchText);
+          editResults.push('Deleted ' + count + ' element(s) containing "' + searchText + '"');
+          break;
+        }
+
         // FORMAT_TABLE_CELL - Style a specific cell
         case 'format_table_cell': {
           if (addContentXml) {
@@ -1363,10 +1440,10 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
         }
 
         default:
-          editResults.push('Unknown operation: ' + op.type);
+          editResults.push('Unknown operation: ' + (opType || 'undefined') + '. Available Word operations: replace_text, add_heading, add_paragraph, add_bullet_list, add_numbered_list, add_table, add_table_row, update_table_cell, delete_table_row, add_section, add_page_break, add_separator, set_margins, set_orientation, add_header, add_footer, add_page_number, delete_element, add_hyperlink, add_table_of_contents, set_font, set_line_spacing, add_chart, add_image, delete_table, delete_image, remove_header, remove_footer, format_table_cell, add_table_column, delete_table_column, count_images, count_tables, clear_content, add_text_box, add_page_border, add_section_break, set_columns, add_column_break, add_watermark, add_drop_cap, add_tab_stop_paragraph, add_formatted_page_numbers, set_table_width, set_table_column_widths, add_image_positioned, add_highlight_paragraph, set_paragraph_spacing, set_first_line_indent, clear_all_content, add_bookmark, insert_before_index, insert_after_index, replace_at_index, replace_text_at_index, delete_at_index, format_at_index, duplicate_at_index, move_to_index, merge_table_cells, delete_element_by_content');
       }
     } catch (error: any) {
-      editResults.push('Error in ' + op.type + ': ' + error.message);
+      editResults.push('Error in ' + (opType || 'unknown') + ': ' + error.message);
     }
   }
 
@@ -1412,7 +1489,25 @@ async function editSpreadsheet(params: any, onProgress?: (s: string, p: number) 
 
   for (const op of operations) {
     try {
-      switch (op.type) {
+      // Normalize operation type from multiple possible field names
+      let opType = op.type || op.tool || op.operation || op.name || '';
+      
+      // Normalize common variations and convert to lowercase with underscores
+      if (opType) {
+        opType = String(opType).toLowerCase().replace(/-/g, '_');
+      }
+      
+      // Handle "remove HR row" style requests - detect row deletion by content
+      if (!opType && op.remove !== undefined && typeof op.remove === 'string') {
+        opType = 'delete_row_by_content';
+        op.search_text = op.remove;
+      }
+      
+      if (!opType) {
+        editResults.push('Warning: Skipping operation with no type defined. Received: ' + JSON.stringify(op));
+        continue;
+      }
+      switch (opType) {
         // DATA OPERATIONS
         case 'add_row': {
           ws.addRow(op.data || []);
@@ -1539,8 +1634,43 @@ async function editSpreadsheet(params: any, onProgress?: (s: string, p: number) 
 
         // DELETE OPERATIONS
         case 'delete_row': {
-          ws.spliceRows(op.row || 1, 1);
-          editResults.push('Deleted row ' + op.row);
+          const rowNum = op.row || 1;
+          ws.spliceRows(rowNum, 1);
+          editResults.push('Deleted row ' + rowNum);
+          break;
+        }
+
+        case 'remove_row': {
+          // Alias for delete_row
+          const rowNum = op.row || 1;
+          ws.spliceRows(rowNum, 1);
+          editResults.push('Removed row ' + rowNum);
+          break;
+        }
+
+        case 'delete_row_by_content': {
+          // Delete row by searching for text content in any cell
+          const searchText = (op.search_text || op.remove || op.text || '').toLowerCase();
+          if (!searchText) {
+            editResults.push('Error: delete_row_by_content requires search_text');
+            break;
+          }
+          let deletedCount = 0;
+          // Iterate backwards to safely delete rows
+          for (let r = ws.rowCount; r >= 1; r--) {
+            const row = ws.getRow(r);
+            let found = false;
+            row.eachCell((cell) => {
+              if (String(cell.value || '').toLowerCase().includes(searchText)) {
+                found = true;
+              }
+            });
+            if (found) {
+              ws.spliceRows(r, 1);
+              deletedCount++;
+            }
+          }
+          editResults.push('Deleted ' + deletedCount + ' row(s) containing "' + searchText + '"');
           break;
         }
 
@@ -2194,10 +2324,10 @@ async function editSpreadsheet(params: any, onProgress?: (s: string, p: number) 
         }
 
         default:
-          editResults.push('Unknown operation: ' + op.type);
+          editResults.push('Unknown operation: ' + (opType || 'undefined') + '. Available Excel operations: add_row, add_multiple_rows, update_cell, set_formula, add_column, set_cell_style, set_range_style, set_number_format, set_column_width, set_row_height, freeze_panes, unfreeze_panes, merge_cells, unmerge_cells, add_sheet, rename_sheet, delete_row, delete_row_by_content, remove_row, delete_column, insert_row, insert_column, replace_text, add_conditional_format, sort, set_auto_filter, set_print_area, set_page_setup, protect_sheet, add_hyperlink_cell, add_comment, add_chart, add_image, clear_range, delete_image, delete_chart, delete_sheet, remove_conditional_format, remove_data_validation, remove_auto_filter, unprotect_sheet, copy_range, copy_sheet, group_rows, ungroup_rows, set_tab_color, set_print_titles, set_print_options, add_named_range, set_alignment, set_borders, add_data_validation, remove_hyperlink, remove_comment');
       }
     } catch (error: any) {
-      editResults.push('Error in ' + op.type + ': ' + error.message);
+      editResults.push('Error in ' + (opType || 'unknown') + ': ' + error.message);
     }
   }
 

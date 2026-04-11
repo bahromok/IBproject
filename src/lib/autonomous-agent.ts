@@ -1,521 +1,537 @@
-import { chatCompletion, type ChatMessage } from './groq-client';
-import { TOOL_DEFINITIONS, executeTool, ToolResult } from './agent-tools';
-import { listFiles as listStorageFiles } from './file-storage';
-import { extractExcelStructure, extractWordStructure } from './file-structure';
+// ═══════════════════════════════════════════════════════════════════════════════════
+// AUTONOMOUS AGENT UTILITIES - Advanced Search, Shell Execution & Memory Management
+// ═══════════════════════════════════════════════════════════════════════════════════
 
-// ─── INTERFACES ───────────────────────────────────────────────────────────────
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
+import { getFilePath, readFileBuffer, writeFileBuffer, ensureStorageDir } from './file-storage';
 
-export interface AgentResponse {
-  thinking: string;
-  plan: PlanStep[];
-  toolCalls: any[];
-  results: ToolResult[];
-  finalMessage: string;
-  corrections: number;
-  isChat: boolean;
-}
+const execAsync = promisify(exec);
 
-export interface PlanStep {
-  step: number;
-  action: string;
-  tool: string;
-  details: string;
-}
+// ═══════════════════════════════════════════════════════════════════════════════════
+// MEMORY CONTEXT MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════════════
 
-export interface HistoryMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  filenames?: string[];
-}
-
-interface FileContext {
+export interface DocumentMemory {
+  id: string;
   filename: string;
-  type: 'excel' | 'word';
-  structure: string;
-}
-
-// ─── CONVERSATIONAL DETECTION ─────────────────────────────────────────────────
-
-const CHAT_PATTERNS = [
-  /^(hi|hello|hey|howdy|sup|yo|hiya|greetings)\b/i,
-  /^(thanks|thank you|thx|ty|appreciate)\b/i,
-  /^(bye|goodbye|see you|later|cya)\b/i,
-  /^(good morning|good afternoon|good evening|good night)/i,
-  /^(what can you do|what are you|who are you|help me|how do you work|what do you do)/i,
-  /^(ok|okay|sure|yes|no|maybe|alright|got it|understood|right)\.?$/i,
-  /^(how are you|how's it going|what's up|whats up)/i,
-];
-
-function isConversational(message: string): boolean {
-  const trimmed = message.trim().toLowerCase();
-
-  // Very short messages are likely conversational
-  if (trimmed.length < 15 && !trimmed.includes('create') && !trimmed.includes('make') && !trimmed.includes('add')) {
-    for (const pattern of CHAT_PATTERNS) {
-      if (pattern.test(trimmed)) return true;
-    }
-  }
-
-  // Check patterns
-  for (const pattern of CHAT_PATTERNS) {
-    if (pattern.test(trimmed)) return true;
-  }
-
-  // Questions without document intent
-  if (trimmed.match(/^(what|who|how|why|when|where|can you|do you|are you|is there)/i) &&
-      !trimmed.match(/\b(create|make|build|generate|write|edit|modify|add|delete|remove|fix|update|design|chart|document|excel|word|spreadsheet|table|report)\b/i)) {
-    return true;
-  }
-
-  return false;
-}
-
-function generateChatResponse(message: string): string {
-  const lower = message.trim().toLowerCase();
-
-  if (/^(hi|hello|hey|howdy|sup|yo|hiya|greetings)/i.test(lower)) {
-    return "Hey! I'm your document assistant. I can create and edit Word documents (.docx) and Excel spreadsheets (.xlsx) — including charts, tables, formulas, styling, and more.\n\nWhat would you like me to build?";
-  }
-
-  if (/^(thanks|thank you|thx|ty)/i.test(lower)) {
-    return "You're welcome! Let me know if you need anything else.";
-  }
-
-  if (/^(bye|goodbye|see you|later|cya)/i.test(lower)) {
-    return "Goodbye! Come back anytime you need documents created or edited.";
-  }
-
-  if (/^(good morning|good afternoon|good evening)/i.test(lower)) {
-    return "Hello! Ready to help you with documents. What do you need?";
-  }
-
-  if (/(what can you do|what are you|who are you|help me|how do you work|what do you do)/i.test(lower)) {
-    return `I'm OfficeAI — I create and edit professional documents. Here's what I can do:
-
-**Word Documents (.docx)**
-• Create formatted documents with headings, paragraphs, tables
-• Add charts (pie, bar, line) as images
-• Insert images, headers, footers, page numbers
-• Style text (bold, italic, color, font, size)
-• Set margins, orientation, line spacing
-• Replace text, delete elements, add hyperlinks
-
-**Excel Spreadsheets (.xlsx)**
-• Create spreadsheets with data, headers, styling
-• Add charts (pie, bar, line, doughnut)
-• Formulas (SUM, AVERAGE, VLOOKUP, IF, etc.)
-• Conditional formatting, data validation
-• Sort, filter, freeze panes, merge cells
-• Currency/percentage formatting
-
-Just tell me what you want in plain English — like "create a sales report with a pie chart" or "add a Total column with SUM formulas to budget.xlsx".`;
-  }
-
-  if (/^(ok|okay|sure|yes|no|maybe|alright|got it|understood)/i.test(lower)) {
-    return "Got it. What would you like me to do next?";
-  }
-
-  if (/^(how are you|how's it going|what's up)/i.test(lower)) {
-    return "I'm ready to help! Tell me what document you'd like to create or edit.";
-  }
-
-  return "I can help you create or edit documents. Just describe what you need — like 'create a quarterly report' or 'add a chart to my spreadsheet'.";
-}
-
-// ─── MAIN AGENT LOOP ──────────────────────────────────────────────────────────
-
-export async function runAutonomousAgent(
-  userMessage: string,
-  onProgress?: (status: string, progress: number, thinking?: string) => void,
-  conversationHistory?: HistoryMessage[],
-  abortSignal?: AbortSignal
-): Promise<AgentResponse> {
-  let corrections = 0;
-  const maxCorrections = 2;
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // PHASE 0: CHECK FOR CONVERSATIONAL INPUT
-  // ═══════════════════════════════════════════════════════════════════════════════
-
-  if (isConversational(userMessage)) {
-    onProgress?.('Responding...', 50, 'Conversational message');
-    const chatMsg = generateChatResponse(userMessage);
-    onProgress?.('Done!', 100);
-    return {
-      thinking: 'Conversational message - providing chat response',
-      plan: [],
-      toolCalls: [],
-      results: [],
-      finalMessage: chatMsg,
-      corrections: 0,
-      isChat: true,
-    };
-  }
-
-  // Check abort
-  if (abortSignal?.aborted) {
-    return { thinking: 'Aborted', plan: [], toolCalls: [], results: [], finalMessage: 'Request cancelled.', corrections: 0, isChat: true };
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // PHASE 1: READ - Gather file structures
-  // ═══════════════════════════════════════════════════════════════════════════════
-
-  onProgress?.('Reading files...', 5, 'Analyzing file structures...');
-
-  const files = listStorageFiles();
-  const fileContexts: FileContext[] = [];
-
-  for (const f of files) {
-    if (abortSignal?.aborted) {
-      return { thinking: 'Aborted', plan: [], toolCalls: [], results: [], finalMessage: 'Request cancelled.', corrections: 0, isChat: true };
-    }
-    try {
-      if (f.name.endsWith('.xlsx')) {
-        const structure = await extractExcelStructure(f.name);
-        fileContexts.push({
-          filename: f.name,
-          type: 'excel',
-          structure: structure.summary,
-        });
-      } else if (f.name.endsWith('.docx')) {
-        const structure = await extractWordStructure(f.name);
-        fileContexts.push({
-          filename: f.name,
-          type: 'word',
-          structure: structure.structure,
-        });
-      }
-    } catch (e) { /* skip unreadable files */ }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // PHASE 2: PLAN - Generate execution plan
-  // ═══════════════════════════════════════════════════════════════════════════════
-
-  onProgress?.('Planning...', 15, 'Designing approach...');
-
-  const fileList = files.length > 0
-    ? files.map(f => `- ${f.name} (${f.type.toUpperCase()}, ${formatSize(f.size)})`).join('\n')
-    : 'No files exist yet.';
-
-  const structureContext = fileContexts.length > 0
-    ? '\n\nFILE STRUCTURES:\n' + fileContexts.map(fc => `--- ${fc.filename} ---\n${fc.structure}`).join('\n\n')
-    : '';
-
-  const historyContext = buildHistoryContext(conversationHistory);
-
-  // Detect active file from conversation history
-  const activeFile = detectActiveFile(conversationHistory, files);
-  const activeFileContext = activeFile
-    ? `\nACTIVE FILE: ${activeFile}\nUse this as the target for edit operations unless user specifies another file.`
-    : '';
-
-  // Detect if this request touches an existing file so we hint read-first
-  const editKeywords = /edit|modify|change|update|replace|fix|add|delete|remove|rename|format|style|bold|color|insert|append|clear|rewrite|improve|translate|adjust|set|make/i;
-  const mentionsFile = files.some(f => userMessage.toLowerCase().includes(f.name.toLowerCase().replace('.docx','').replace('.xlsx','')));
-  const isEditRequest = editKeywords.test(userMessage) && (mentionsFile || files.length === 1);
-  const readFirstHint = isEditRequest
-    ? `
-IMPORTANT: This request edits an existing file. Use get_paragraph_index (Word) or read_spreadsheet_full (Excel) FIRST, then make precise edits using the returned indices/cell addresses.`
-    : '';
-
-  const systemPrompt = `You are OfficeAI, a powerful document AI with FULL surgical control over every Word and Excel file.
-
-${TOOL_DEFINITIONS}
-
-CURRENT STATE
-FILES IN STORAGE:
-${fileList}
-${structureContext}
-${activeFileContext}
-${historyContext}
-${readFirstHint}`;
-
-  const messages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt }
-  ];
-
-  if (conversationHistory && conversationHistory.length > 0) {
-    const recent = conversationHistory.slice(-6);
-    for (const msg of recent) {
-      messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content });
-    }
-  }
-
-  messages.push({ role: 'user', content: userMessage });
-
-  onProgress?.('Thinking...', 20, 'Analyzing your request...');
-
-  if (abortSignal?.aborted) {
-    return { thinking: 'Aborted', plan: [], toolCalls: [], results: [], finalMessage: 'Request cancelled.', corrections: 0, isChat: true };
-  }
-
-  let parsedResponse: {
-    thinking: string;
-    plan: PlanStep[];
-    tool_calls: any[];
-    message: string;
-  } | null = null;
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (abortSignal?.aborted) {
-      return { thinking: 'Aborted', plan: [], toolCalls: [], results: [], finalMessage: 'Request cancelled.', corrections: 0, isChat: true };
-    }
-    try {
-      const aiResponse = await chatCompletion(messages, { temperature: 0.1, maxTokens: 8192 });
-      parsedResponse = parseJsonResponse(aiResponse);
-      if (parsedResponse && parsedResponse.tool_calls && parsedResponse.tool_calls.length > 0) break;
-    } catch (e) {
-      if (attempt === 2) {
-        // Last resort: chat fallback instead of creating files
-        return {
-          thinking: 'Failed to parse AI response',
-          plan: [],
-          toolCalls: [],
-          results: [],
-          finalMessage: "I had trouble understanding that. Could you rephrase? For example:\n• 'Create a budget spreadsheet with a pie chart'\n• 'Add a row to report.xlsx'\n• 'Make a professional Word document about Q4 results'",
-          corrections: 0,
-          isChat: true,
-        };
-      }
-    }
-  }
-
-  // If AI returned no tool_calls, treat as chat instead of creating files
-  if (!parsedResponse || !parsedResponse.tool_calls || parsedResponse.tool_calls.length === 0) {
-    return {
-      thinking: 'No actionable document operations identified',
-      plan: [],
-      toolCalls: [],
-      results: [],
-      finalMessage: "I can help with that! Try asking me to:\n• Create a document or spreadsheet\n• Edit an existing file\n• Add charts, tables, or formulas\n\nJust describe what you need.",
-      corrections: 0,
-      isChat: true,
-    };
-  }
-
-  onProgress?.('Executing plan...', 30, parsedResponse.thinking);
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // PHASE 3: EXECUTE - Run each tool call
-  // ═══════════════════════════════════════════════════════════════════════════════
-
-  const results: ToolResult[] = [];
-  const toolCalls = parsedResponse.tool_calls;
-
-  for (let i = 0; i < toolCalls.length; i++) {
-    // Check abort between steps
-    if (abortSignal?.aborted) {
-      results.push({ success: false, message: 'Cancelled by user' });
-      break;
-    }
-
-    const toolCall = toolCalls[i];
-    const progress = 30 + (i / Math.max(toolCalls.length, 1)) * 60;
-
-    onProgress?.(
-      'Step ' + (i + 1) + '/' + toolCalls.length + ': ' + (toolCall.tool || 'unknown'),
-      progress,
-      parsedResponse!.thinking
-    );
-
-    const result = await executeTool(toolCall, (status, p) => {
-      onProgress?.(status, progress + (p / 100) * (60 / Math.max(toolCalls.length, 1)), parsedResponse!.thinking);
-    });
-
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // PHASE 4: VERIFY & CORRECT
-    // ═══════════════════════════════════════════════════════════════════════════════
-
-    if (!result.success && corrections < maxCorrections) {
-      onProgress?.('Correcting issue...', progress, result.message);
-
-      const fixResult = await attemptFix(toolCall, result);
-      if (fixResult.success) {
-        results.push(fixResult);
-        corrections++;
-        onProgress?.('Fixed!', progress, 'Self-corrected');
-      } else {
-        results.push(result);
-      }
-    } else {
-      results.push(result);
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // PHASE 5: FINALIZE
-  // ═══════════════════════════════════════════════════════════════════════════════
-
-  onProgress?.('Done!', 100);
-
-  let finalMessage = parsedResponse.message || '';
-  const filenames: string[] = [];
-  const modifiedFiles = new Set<string>();
-
-  for (const r of results) {
-    if (r.filename) {
-      filenames.push(r.filename);
-      if (r.success) modifiedFiles.add(r.filename);
-    }
-  }
-
-  // Re-read structures of modified files for updated state
-  const updatedStructures: Record<string, string> = {};
-  for (const fname of modifiedFiles) {
-    try {
-      if (fname.endsWith('.xlsx')) {
-        const s = await extractExcelStructure(fname);
-        updatedStructures[fname] = s.summary;
-      } else if (fname.endsWith('.docx')) {
-        const s = await extractWordStructure(fname);
-        updatedStructures[fname] = s.structure;
-      }
-    } catch { }
-  }
-
-  if (results.length > 0) {
-    const resultLines = results.map(r => r.success ? r.message.split('\n')[0] : 'Failed: ' + r.message);
-    finalMessage += '\n\n' + resultLines.join('\n');
-  }
-
-  return {
-    thinking: parsedResponse.thinking,
-    plan: parsedResponse.plan || [],
-    toolCalls,
-    results,
-    finalMessage,
-    corrections,
-    isChat: false,
+  type: 'word' | 'excel';
+  createdAt: Date;
+  lastModified: Date;
+  elements: Array<{
+    id: string;
+    type: string;
+    content?: string;
+    index?: number;
+    properties?: any;
+  }>;
+  metadata: {
+    wordCount?: number;
+    sheetCount?: number;
+    tableCount?: number;
+    imageCount?: number;
+    [key: string]: any;
   };
 }
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
+const documentMemoryCache = new Map<string, DocumentMemory>();
 
-function parseJsonResponse(response: string): {
-  thinking: string;
-  plan: PlanStep[];
-  tool_calls: any[];
-  message: string;
-} | null {
+/**
+ * Store document structure in memory for fast access
+ */
+export function storeDocumentMemory(memory: DocumentMemory): void {
+  documentMemoryCache.set(memory.id, memory);
+  persistMemoryToFile();
+}
+
+/**
+ * Retrieve document from memory
+ */
+export function getDocumentMemory(id: string): DocumentMemory | undefined {
+  return documentMemoryCache.get(id);
+}
+
+/**
+ * Get all document memories
+ */
+export function getAllDocumentMemories(): DocumentMemory[] {
+  return Array.from(documentMemoryCache.values());
+}
+
+/**
+ * Update specific element in document memory
+ */
+export function updateElementInMemory(
+  docId: string, 
+  elementId: string, 
+  updates: Partial<DocumentMemory['elements'][0]>
+): boolean {
+  const memory = documentMemoryCache.get(docId);
+  if (!memory) return false;
+  
+  const elementIndex = memory.elements.findIndex(e => e.id === elementId);
+  if (elementIndex === -1) return false;
+  
+  memory.elements[elementIndex] = { ...memory.elements[elementIndex], ...updates };
+  memory.lastModified = new Date();
+  persistMemoryToFile();
+  return true;
+}
+
+/**
+ * Delete element from document memory
+ */
+export function deleteElementFromMemory(docId: string, elementId: string): boolean {
+  const memory = documentMemoryCache.get(docId);
+  if (!memory) return false;
+  
+  const initialLength = memory.elements.length;
+  memory.elements = memory.elements.filter(e => e.id !== elementId);
+  memory.lastModified = new Date();
+  persistMemoryToFile();
+  return memory.elements.length < initialLength;
+}
+
+/**
+ * Add element to document memory
+ */
+export function addElementToMemory(
+  docId: string, 
+  element: DocumentMemory['elements'][0]
+): void {
+  const memory = documentMemoryCache.get(docId);
+  if (!memory) return;
+  
+  memory.elements.push(element);
+  memory.lastModified = new Date();
+  persistMemoryToFile();
+}
+
+/**
+ * Persist memory to memory.md file
+ */
+function persistMemoryToFile(): void {
   try {
-    return JSON.parse(response);
-  } catch { }
-
-  const jsonMatch = response.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.tool_calls) {
-        return {
-          thinking: parsed.thinking || 'Processing...',
-          plan: parsed.plan || [],
-          tool_calls: parsed.tool_calls,
-          message: parsed.message || 'Done.',
-        };
+    ensureStorageDir();
+    const memoryPath = path.join(process.env.STORAGE_DIR || './storage', 'memory.md');
+    
+    let content = '# Document Memory Index\n\n';
+    content += `Last Updated: ${new Date().toISOString()}\n\n`;
+    content += `Total Documents: ${documentMemoryCache.size}\n\n`;
+    content += '---\n\n';
+    
+    for (const [id, memory] of documentMemoryCache.entries()) {
+      content += `## ${memory.filename}\n\n`;
+      content += `- **ID**: ${id}\n`;
+      content += `- **Type**: ${memory.type}\n`;
+      content += `- **Created**: ${memory.createdAt.toISOString()}\n`;
+      content += `- **Last Modified**: ${memory.lastModified.toISOString()}\n`;
+      content += `- **Elements**: ${memory.elements.length}\n`;
+      
+      if (memory.metadata.wordCount) {
+        content += `- **Word Count**: ${memory.metadata.wordCount}\n`;
       }
-    } catch { }
+      if (memory.metadata.sheetCount) {
+        content += `- **Sheets**: ${memory.metadata.sheetCount}\n`;
+      }
+      if (memory.metadata.tableCount !== undefined) {
+        content += `- **Tables**: ${memory.metadata.tableCount}\n`;
+      }
+      if (memory.metadata.imageCount !== undefined) {
+        content += `- **Images**: ${memory.metadata.imageCount}\n`;
+      }
+      
+      content += '\n### Elements:\n\n';
+      for (const elem of memory.elements.slice(0, 20)) {
+        content += `- [${elem.index !== undefined ? elem.index : 'N/A'}] ${elem.type}: ${elem.content?.substring(0, 100) || 'No content'}${(elem.content?.length || 0) > 100 ? '...' : ''}\n`;
+      }
+      
+      if (memory.elements.length > 20) {
+        content += `\n*... and ${memory.elements.length - 20} more elements*\n`;
+      }
+      
+      content += '\n---\n\n';
+    }
+    
+    fs.writeFileSync(memoryPath, content, 'utf-8');
+  } catch (error) {
+    console.error('Failed to persist memory to file:', error);
   }
-
-  const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlockMatch) {
-    try {
-      const parsed = JSON.parse(codeBlockMatch[1].trim());
-      return {
-        thinking: parsed.thinking || 'Processing...',
-        plan: parsed.plan || [],
-        tool_calls: parsed.tool_calls || [],
-        message: parsed.message || 'Done.',
-      };
-    } catch { }
-  }
-
-  return null;
 }
 
-async function attemptFix(toolCall: any, result: ToolResult): Promise<ToolResult> {
+/**
+ * Load memory from memory.md file on startup
+ */
+export function loadMemoryFromFile(): void {
   try {
-    if (toolCall.filename && !toolCall.filename.includes('.')) {
-      const ext = toolCall.tool === 'create_spreadsheet' || toolCall.tool === 'edit_spreadsheet' ? '.xlsx' : '.docx';
-      toolCall.filename += ext;
-      return await executeTool(toolCall);
-    }
+    const memoryPath = path.join(process.env.STORAGE_DIR || './storage', 'memory.md');
+    if (!fs.existsSync(memoryPath)) return;
+    
+    const content = fs.readFileSync(memoryPath, 'utf-8');
+    documentMemoryCache.clear();
+    console.log('Memory file loaded. Cache will be rebuilt on document access.');
+  } catch (error) {
+    console.error('Failed to load memory from file:', error);
+  }
+}
 
-    if (result.message.includes('not found') && toolCall.tool === 'edit_spreadsheet') {
-      const createResult = await executeTool({
-        tool: 'create_spreadsheet',
-        filename: toolCall.filename,
-        sheets: [{ name: 'Sheet1', headers: ['Column1'] }],
-      });
-      if (createResult.success) {
-        return await executeTool(toolCall);
+// ═══════════════════════════════════════════════════════════════════════════════════
+// ADVANCED SEARCH UTILITIES (GREP-LIKE)
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+export interface SearchResult {
+  file: string;
+  line: number;
+  column: number;
+  content: string;
+  context?: string;
+  match: string;
+}
+
+/**
+ * Search for text pattern across all documents using grep-like functionality
+ */
+export async function searchInDocuments(
+  pattern: string,
+  options: {
+    caseSensitive?: boolean;
+    wholeWord?: boolean;
+    contextLines?: number;
+    filePattern?: string;
+    maxResults?: number;
+  } = {}
+): Promise<SearchResult[]> {
+  const results: SearchResult[] = [];
+  const storageDir = process.env.STORAGE_DIR || './storage';
+  
+  try {
+    const flags = ['-n', '-H'];
+    if (!options.caseSensitive) {
+      flags.push('-i');
+    }
+    if (options.wholeWord) {
+      flags.push('-w');
+    }
+    if (options.contextLines && options.contextLines > 0) {
+      flags.push(`-C${options.contextLines}`);
+    }
+    
+    const maxResults = options.maxResults || 100;
+    const grepPattern = pattern.replace(/'/g, "'\\''");
+    const cmd = `cd "${storageDir}" && find . -type f \\( -name "*.docx" -o -name "*.xlsx" \\) -exec sh -c 'for f; do strings "$f" | grep -n ${flags.join(' ')} "${grepPattern}" | head -${maxResults}; done' _ {} +`;
+    
+    const { stdout } = await execAsync(cmd, { 
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30000 
+    });
+    
+    if (stdout.trim()) {
+      const lines = stdout.split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        const match = line.match(/^([^:]+):(\d+):(.*)$/);
+        if (match) {
+          results.push({
+            file: match[1],
+            line: parseInt(match[2]),
+            column: 0,
+            content: match[3].trim(),
+            match: pattern
+          });
+        }
       }
     }
+  } catch (error: any) {
+    if (error.code !== 1) {
+      console.error('Search error:', error.message);
+    }
+  }
+  
+  return results.slice(0, maxResults);
+}
 
-    if (result.message.includes('not found') && toolCall.tool === 'edit_document') {
-      const createResult = await executeTool({
-        tool: 'create_document',
-        filename: toolCall.filename,
-        title: 'Document',
-        sections: [{ heading: 'Document', content: 'Content' }],
-      });
-      if (createResult.success) {
-        return await executeTool(toolCall);
+/**
+ * Search and replace text across documents
+ */
+export async function searchAndReplaceInDocuments(
+  pattern: string,
+  replacement: string,
+  options: {
+    caseSensitive?: boolean;
+    wholeWord?: boolean;
+    filePattern?: string;
+  } = {}
+): Promise<{ file: string; replacements: number }[]> {
+  const results: Array<{ file: string; replacements: number }> = [];
+  
+  try {
+    const searchResults = await searchInDocuments(pattern, {
+      caseSensitive: options.caseSensitive,
+      wholeWord: options.wholeWord,
+      filePattern: options.filePattern,
+      maxResults: 1000
+    });
+    
+    const fileMap = new Map<string, number>();
+    for (const result of searchResults) {
+      fileMap.set(result.file, (fileMap.get(result.file) || 0) + 1);
+    }
+    
+    for (const [file, count] of fileMap.entries()) {
+      results.push({ file, replacements: count });
+    }
+  } catch (error: any) {
+    console.error('Search and replace error:', error.message);
+  }
+  
+  return results;
+}
+
+/**
+ * Get document statistics using command-line tools
+ */
+export async function getDocumentStats(filename: string): Promise<{
+  fileSize: number;
+  wordCount?: number;
+  lineCount?: number;
+  characterCount?: number;
+}> {
+  const filePath = getFilePath(filename);
+  
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`File not found: ${filename}`);
+  }
+  
+  const stats = fs.statSync(filePath);
+  
+  try {
+    const { stdout } = await execAsync(`strings "${filePath}" | wc -w`, {
+      maxBuffer: 10 * 1024 * 1024
+    });
+    
+    const wordCount = parseInt(stdout.trim()) || 0;
+    
+    return {
+      fileSize: stats.size,
+      wordCount,
+      lineCount: undefined,
+      characterCount: undefined
+    };
+  } catch (error) {
+    return {
+      fileSize: stats.size
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════
+// SAFE SHELL COMMAND EXECUTION
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+export interface ShellCommandResult {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  command: string;
+  duration: number;
+}
+
+const ALLOWED_COMMANDS = new Set([
+  'ls', 'dir', 'pwd', 'echo', 'cat', 'head', 'tail', 'wc',
+  'grep', 'find', 'sort', 'uniq', 'cut', 'awk', 'sed',
+  'mkdir', 'rmdir', 'cp', 'mv', 'rm', 'touch',
+  'chmod', 'chown', 'stat', 'file', 'which', 'whereis',
+  'date', 'time', 'uname', 'hostname', 'whoami',
+  'zip', 'unzip', 'tar', 'gzip', 'gunzip',
+  'node', 'npm', 'npx', 'python', 'python3',
+  'git', 'curl', 'wget',
+]);
+
+const DANGEROUS_PATTERNS = [
+  ';', '&&', '||', '|', '`', '$(', '${', '>', '<', '&',
+  'rm -rf /', 'sudo', 'su ', 'chmod 777', 'dd if=',
+  ':(){:|:&};:', 'fork bomb', 'mkfs', 'fdisk', 'mount',
+  '/dev/null', 'nohup', 'disown', 'kill', 'pkill',
+];
+
+/**
+ * Validate if a command is safe to execute
+ */
+function isCommandSafe(command: string): { safe: boolean; reason?: string } {
+  const cmd = command.trim().toLowerCase();
+  
+  for (const pattern of DANGEROUS_PATTERNS) {
+    if (cmd.includes(pattern.toLowerCase())) {
+      return { safe: false, reason: `Contains dangerous pattern: ${pattern}` };
+    }
+  }
+  
+  const baseCmd = cmd.split(/\s+/)[0];
+  
+  if (!ALLOWED_COMMANDS.has(baseCmd)) {
+    return { safe: false, reason: `Command not allowed: ${baseCmd}` };
+  }
+  
+  return { safe: true };
+}
+
+/**
+ * Execute a shell command safely
+ */
+export async function executeShellCommand(
+  command: string,
+  options: {
+    timeout?: number;
+    maxBuffer?: number;
+    cwd?: string;
+    dryRun?: boolean;
+  } = {}
+): Promise<ShellCommandResult> {
+  const startTime = Date.now();
+  
+  const safety = isCommandSafe(command);
+  if (!safety.safe) {
+    return {
+      success: false,
+      stdout: '',
+      stderr: `Command blocked for safety: ${safety.reason}`,
+      exitCode: -1,
+      command,
+      duration: Date.now() - startTime
+    };
+  }
+  
+  if (options.dryRun) {
+    return {
+      success: true,
+      stdout: `[DRY RUN] Would execute: ${command}`,
+      stderr: '',
+      exitCode: 0,
+      command,
+      duration: Date.now() - startTime
+    };
+  }
+  
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      timeout: options.timeout || 30000,
+      maxBuffer: options.maxBuffer || 5 * 1024 * 1024,
+      cwd: options.cwd || process.env.STORAGE_DIR || './storage',
+      windowsHide: true
+    });
+    
+    return {
+      success: true,
+      stdout: stdout.trim(),
+      stderr: stderr.trim(),
+      exitCode: 0,
+      command,
+      duration: Date.now() - startTime
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      stdout: error.stdout?.trim() || '',
+      stderr: error.stderr?.trim() || error.message,
+      exitCode: error.code ?? error.exitCode ?? -1,
+      command,
+      duration: Date.now() - startTime
+    };
+  }
+}
+
+/**
+ * List files in storage directory
+ */
+export async function listFilesDetailed(
+  pattern: string = '*',
+  options: { includeHidden?: boolean; sortBy?: 'name' | 'size' | 'date'; reverse?: boolean } = {}
+): Promise<Array<{ name: string; size: number; modified: Date; type: string }>> {
+  const storageDir = process.env.STORAGE_DIR || './storage';
+  
+  try {
+    let cmd = `ls -la --time-style=long-iso "${storageDir}"`;
+    if (pattern !== '*') {
+      cmd += ` | grep "${pattern}"`;
+    }
+    
+    const { stdout } = await execAsync(cmd);
+    
+    const files: Array<{ name: string; size: number; modified: Date; type: string }> = [];
+    const lines = stdout.split('\n').slice(1);
+    
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 9) {
+        const type = parts[0][0] === 'd' ? 'directory' : 'file';
+        const size = parseInt(parts[4]) || 0;
+        const dateStr = `${parts[5]} ${parts[6]} ${parts[7]}`;
+        const modified = new Date(dateStr);
+        const name = parts.slice(8).join(' ');
+        
+        if (!options.includeHidden && name.startsWith('.')) {
+          continue;
+        }
+        
+        files.push({ name, size, modified, type });
       }
     }
-  } catch { }
-
-  return result;
-}
-
-function detectActiveFile(
-  history?: HistoryMessage[],
-  existingFiles?: { name: string }[]
-): string | null {
-  if (!history || history.length === 0) return null;
-
-  const allFilenames = new Set(existingFiles?.map(f => f.name) || []);
-
-  // Scan history in reverse for the most recently mentioned file
-  for (let i = history.length - 1; i >= 0; i--) {
-    const msg = history[i];
-    if (msg.filenames && msg.filenames.length > 0) {
-      // Return the last filename from the most recent message that has filenames
-      return msg.filenames[msg.filenames.length - 1];
+    
+    if (options.sortBy) {
+      files.sort((a, b) => {
+        let comparison = 0;
+        switch (options.sortBy) {
+          case 'name':
+            comparison = a.name.localeCompare(b.name);
+            break;
+          case 'size':
+            comparison = a.size - b.size;
+            break;
+          case 'date':
+            comparison = a.modified.getTime() - b.modified.getTime();
+            break;
+        }
+        return options.reverse ? -comparison : comparison;
+      });
     }
-    // Also scan content for filename patterns
-    const fileMatch = msg.content.match(/\b([\w-]+\.(docx|xlsx))\b/i);
-    if (fileMatch && allFilenames.has(fileMatch[1])) {
-      return fileMatch[1];
-    }
+    
+    return files;
+  } catch (error) {
+    const entries = fs.readdirSync(storageDir, { withFileTypes: true });
+    return entries
+      .filter(e => options.includeHidden || !e.name.startsWith('.'))
+      .filter(e => pattern === '*' || e.name.includes(pattern))
+      .map(e => ({
+        name: e.name,
+        size: e.isFile() ? fs.statSync(path.join(storageDir, e.name)).size : 0,
+        modified: fs.statSync(path.join(storageDir, e.name)).mtime,
+        type: e.isDirectory() ? 'directory' : 'file'
+      }));
   }
-
-  // If files exist but no history mentions them, return the most recent file
-  if (existingFiles && existingFiles.length > 0) {
-    return existingFiles[0].name;
-  }
-
-  return null;
 }
 
-function buildHistoryContext(history?: HistoryMessage[]): string {
-  if (!history || history.length === 0) return '';
-
-  const recent = history.slice(-4);
-  const lines: string[] = ['RECENT CONVERSATION:'];
-
-  for (const msg of recent) {
-    const role = msg.role === 'user' ? 'User' : 'AI';
-    const content = msg.content.slice(0, 150).replace(/\n/g, ' ');
-    lines.push(`${role}: ${content}`);
-  }
-
-  return lines.join('\n') + '\n';
+/**
+ * Get system information
+ */
+export async function getSystemInfo(): Promise<{
+  platform: string;
+  arch: string;
+  nodeVersion: string;
+  memoryUsage: NodeJS.MemoryUsage;
+  uptime: number;
+  cwd: string;
+}> {
+  return {
+    platform: process.platform,
+    arch: process.arch,
+    nodeVersion: process.version,
+    memoryUsage: process.memoryUsage(),
+    uptime: process.uptime(),
+    cwd: process.cwd()
+  };
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
+// Initialize memory on module load
+loadMemoryFromFile();
