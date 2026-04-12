@@ -955,6 +955,8 @@ export interface IndexedParagraph {
   isEmpty: boolean;
   xmlStart: number;    // byte offset in document.xml (internal)
   xmlEnd: number;
+  rowCount?: number;   // for tables: number of rows
+  colCount?: number;   // for tables: number of columns
 }
 
 /** Return every top-level block with its index for AI targeting */
@@ -976,9 +978,20 @@ export async function getIndexedParagraphs(filename: string): Promise<IndexedPar
     const end = m.index + block.length;
 
     if (block.startsWith('<w:tbl>') || block.startsWith('<w:tbl ')) {
-      // Table
+      // Table - extract row count for better context
       const tableText = extractParaText(block);
-      results.push({ index, type: 'table', text: tableText.slice(0, 120), isEmpty: !tableText.trim(), xmlStart: start, xmlEnd: end });
+      const rows = findTableRows(block);
+      const cols = rows.length > 0 ? findTableCells(rows[0].content).length : 0;
+      results.push({ 
+        index, 
+        type: 'table', 
+        text: `[TABLE ${rows.length} rows x ${cols} cols] ${tableText.slice(0, 80)}`, 
+        isEmpty: !tableText.trim(), 
+        xmlStart: start, 
+        xmlEnd: end,
+        rowCount: rows.length,
+        colCount: cols
+      });
     } else {
       // Paragraph
       const text = extractParaText(block);

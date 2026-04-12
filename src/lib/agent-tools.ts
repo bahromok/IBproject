@@ -51,15 +51,17 @@ THE 14 TOOLS  (use in "tool_calls" array only)
    Returns full text, word count, all elements.
 
 2. get_paragraph_index   { "tool":"get_paragraph_index", "filename":"f.docx" }
-   ★ USE THIS BEFORE EDITING. Returns every block with its index number:
+   ★ CRITICAL: USE THIS FIRST BEFORE ANY EDIT! Returns every block with its index number:
    [0] [H1] Title text
    [1] [P]  Paragraph text...
    [2] [TABLE 3 rows] Col1 | Col2
-   Then use those index numbers for precise insert/replace/delete/format.
+   Then use those EXACT index numbers for precise insert/replace/delete/format.
+   ★ MEMORY: Remember these indices across conversation turns! When user refers to "@N" or "paragraph N", use that exact index!
 
 3. create_document   { "tool":"create_document", "filename":"r.docx", "title":"T", "sections":[{heading,content,bullets,numberedItems,table:{headers,rows}}] }
 
 4. edit_document   { "tool":"edit_document", "filename":"f.docx", "operations":[...] }
+   ★ For edits, ALWAYS use operations with explicit index references from get_paragraph_index
 
 ─── EXCEL SPREADSHEETS ────────────────────────────────────────
 
@@ -93,21 +95,28 @@ THE 14 TOOLS  (use in "tool_calls" array only)
 WORD OPERATIONS  (inside edit_document "operations" array)
 ═══════════════════════════════════════════════════════════════
 
+★ CRITICAL RULES FOR INDEXED EDITING:
+  - When user says "@N" or "at index N" or "paragraph N" or "block N", use indexed operations!
+  - NEVER use replace_text when user specifies an index - use replace_text_at_index instead!
+  - NEVER use delete_element when user specifies an index - use delete_at_index instead!
+  - REMEMBER indices from get_paragraph_index across conversation turns!
+  - If user says "change Title to X" and Title is at index 0, use replace_text_at_index(0, "X") NOT replace_text!
+
 ─── PRECISION INDEXED OPERATIONS (use after get_paragraph_index) ───
 insert_before_index(index, content_xml)         Insert XML before block at index
 insert_after_index(index, content_xml)          Insert XML after block at index
 replace_at_index(index, content_xml)            Replace entire block at index with new XML
-replace_text_at_index(index, text)              Replace text of paragraph at index, preserve formatting
+replace_text_at_index(index, text)              Replace ONLY text of paragraph at index, preserve formatting
 delete_at_index(index)                          Delete block at index
 format_at_index(index, bold?, italic?, underline?, color?, font?, fontSize?, alignment?,
   headingLevel?, indent?, spaceBefore?, spaceAfter?, lineSpacing?, highlight?)
 duplicate_at_index(index)                       Duplicate block at index
 move_to_index(source_index, dest_index)         Move block from source to dest position
 
-─── TEXT OPERATIONS ───
-replace_text(find, replace, caseSensitive?)     Replace text across document (handles split runs)
+─── TEXT OPERATIONS (use when NO index specified) ───
+replace_text(find, replace, caseSensitive?)     Replace ALL occurrences of text across document
 set_text_style(find, bold?, italic?, underline?, color?, font?, fontSize?, strikethrough?)
-delete_element(search)                          Delete paragraphs containing text
+delete_element(search)                          Delete paragraphs containing text (imprecise!)
 clear_content(search)                           Clear (blank out) matching text
 
 ─── ADD CONTENT ───
@@ -123,8 +132,8 @@ add_highlight_paragraph(text, highlight?, bold?, color?)
 ─── TABLES ───
 add_table(headers[], rows[][])
 add_table_row(table_index, data[])
-update_table_cell(table_index, row, col, value)
-delete_table_row(table_index, row)
+update_table_cell(table_index, row, col, value)    ★ row is 1-BASED (1=first row)
+delete_table_row(table_index, row)                ★ row is 1-BASED (1=first row). ALWAYS call get_paragraph_index first to see table structure!
 delete_table_column(table_index, col)
 delete_table(table_index)
 format_table_cell(table_index, row, col, bg?, bold?, color?, font?, fontSize?, align?)
@@ -243,18 +252,30 @@ clear_range(range, mode?)
 add_image(image_base64, width?, height?, row?, col?)
 
 ═══════════════════════════════════════════════════════════════
-WORKFLOW RULES — FOLLOW THESE
+WORKFLOW RULES — FOLLOW THESE STRICTLY
 ═══════════════════════════════════════════════════════════════
 
 ★ ALWAYS READ BEFORE EDITING:
-  - For Word: call get_paragraph_index FIRST. Use index numbers for precise edits.
+  - For Word: call get_paragraph_index FIRST. Store indices in memory.
   - For Excel: call read_spreadsheet_full or analyze_file FIRST to see actual data.
-  - Never guess at structure — always verify with a read tool first.
+  - NEVER guess at structure — always verify with a read tool first.
 
-★ FOR WORD PRECISION EDITING:
-  1. get_paragraph_index → see all blocks with numbers
-  2. Use insert_before_index/replace_at_index/delete_at_index/format_at_index
-  3. Never use replace_text for structural changes — use indexed operations
+★ FOR WORD PRECISION EDITING (CRITICAL):
+  1. get_paragraph_index → see all blocks with numbers [0], [1], [2]...
+  2. REMEMBER these indices across conversation turns
+  3. When user says "@N" or "index N" or "paragraph N", use that EXACT number
+  4. Use replace_text_at_index(index, text) to change text at specific index
+  5. Use delete_at_index(index) to remove block at specific index
+  6. Use format_at_index(index, ...) to style block at specific index
+  7. NEVER use replace_text() for targeted edits - it changes ALL occurrences!
+  8. When user says "change Title to X" and you know Title is at index 0, use replace_text_at_index(0, "X")
+
+★ EXAMPLE INTERPRETATIONS:
+  User: "change @3 color to RED" → format_at_index(index: 3, color: "FF0000")
+  User: "change @9 Emotions to Emotionals" → replace_text_at_index(index: 9, text: "Emotionals")
+  User: "remove paragraph at the end" → First get_paragraph_index, then delete_at_index(lastIndex)
+  User: "change Title to Humans" → If Title is at index 0, use replace_text_at_index(0, "Humans")
+  User: "remove last paragraph" → get_paragraph_index first, then delete_at_index(highestIndex)
 
 ★ FOR EXCEL PRECISION EDITING:
   1. read_spreadsheet_full → see every cell, formula, and value
@@ -606,6 +627,12 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
     try {
       // Infer operation type if not explicitly provided
       let opType = op.type;
+      
+      // Handle case where AI sends "function" field instead of proper operation format
+      if (!opType && op.function) {
+        opType = op.function;
+      }
+      
       if (!opType) {
         // TEXT OPERATIONS
         if ((op.find !== undefined || op.old !== undefined) && (op.replace !== undefined || op.new !== undefined)) opType = 'replace_text';
@@ -622,12 +649,18 @@ async function editDocument(params: any, onProgress?: (s: string, p: number) => 
         else if ((op.row !== undefined || op.rowIndex !== undefined) && (op.table_index !== undefined || op.tableIndex !== undefined) && op.value === undefined && op.data === undefined) opType = 'delete_table_row';
         else if ((op.col !== undefined || op.column !== undefined || op.colIndex !== undefined) && (op.table_index !== undefined || op.tableIndex !== undefined) && op.value === undefined) opType = 'delete_table_column';
         else if (op.table_index !== undefined && op.delete !== undefined) opType = 'delete_table';
-        // INDEXED OPERATIONS
+        // INDEXED OPERATIONS - Check for function field variants FIRST, then property patterns
+        else if (op.index !== undefined && (op.function === 'delete_at_index' || op.function === 'deleteAtIndex' || op.function === 'deleteAt')) opType = 'delete_at_index';
+        else if (op.index !== undefined && (op.function === 'replace_text_at_index' || op.function === 'replaceTextAtIndex' || op.function === 'replaceTextAt')) opType = 'replace_text_at_index';
+        else if (op.index !== undefined && (op.function === 'format_at_index' || op.function === 'formatAtIndex' || op.function === 'formatAt')) opType = 'format_at_index';
+        else if (op.index !== undefined && (op.function === 'insert_after_index' || op.function === 'insertAfterIndex' || op.function === 'insertAfter')) opType = 'insert_after_index';
+        else if (op.index !== undefined && (op.function === 'insert_before_index' || op.function === 'insertBeforeIndex' || op.function === 'insertBefore')) opType = 'insert_before_index';
+        else if (op.index !== undefined && (op.function === 'replace_at_index' || op.function === 'replaceAtIndex' || op.function === 'replaceAt')) opType = 'replace_at_index';
         else if (op.index !== undefined && op.content_xml !== undefined && (op.insertBefore !== undefined || op.insert_before !== undefined || op.before !== undefined)) opType = 'insert_before_index';
         else if (op.index !== undefined && op.content_xml !== undefined) opType = 'insert_after_index';
-        else if (op.index !== undefined && op.text !== undefined && op.content_xml === undefined && op.bold === undefined && op.color === undefined && op.font === undefined && op.fontSize === undefined && op.alignment === undefined && op.headingLevel === undefined && op.content === undefined) opType = 'replace_text_at_index';
-        else if (op.index !== undefined && (op.bold !== undefined || op.color !== undefined || op.font !== undefined || op.fontSize !== undefined || op.alignment !== undefined || op.headingLevel !== undefined || op.indent !== undefined || op.highlight !== undefined)) opType = 'format_at_index';
-        else if (op.index !== undefined && (op.delete !== undefined || op.deleteElement !== undefined || op.remove !== undefined)) opType = 'delete_at_index';
+        else if (op.index !== undefined && op.text !== undefined && op.content_xml === undefined && op.bold === undefined && op.color === undefined && op.font === undefined && op.fontSize === undefined && op.alignment === undefined && op.headingLevel === undefined && op.content === undefined && op.highlight === undefined) opType = 'replace_text_at_index';
+        else if (op.index !== undefined && (op.bold !== undefined || op.color !== undefined || op.font !== undefined || op.fontSize !== undefined || op.alignment !== undefined || op.headingLevel !== undefined || op.indent !== undefined || op.highlight !== undefined || op.spaceBefore !== undefined || op.spaceAfter !== undefined || op.lineSpacing !== undefined || op.underline !== undefined || op.italic !== undefined)) opType = 'format_at_index';
+        else if (op.index !== undefined && (op.delete !== undefined || op.deleteElement !== undefined || op.remove !== undefined || op.removeElement !== undefined)) opType = 'delete_at_index';
         else if (op.source_index !== undefined && op.dest_index !== undefined) opType = 'move_to_index';
         else if (op.index !== undefined && (op.duplicate !== undefined || op.copy !== undefined)) opType = 'duplicate_at_index';
         // LAYOUT / PAGE
@@ -2441,11 +2474,19 @@ async function getParagraphIndex(params: any, onProgress?: (s: string, p: number
 
   const blocks = await getIndexedParagraphs(filename);
 
+  // Update memory system with document structure
+  try {
+    const { updateDocumentStructure } = await import('./memory-system');
+    updateDocumentStructure(filename, blocks);
+  } catch (e) {
+    console.error('Failed to update memory:', e);
+  }
+
   const lines = blocks.map(b => {
     let tag = '[P]';
     if (b.type === 'heading') tag = `[H${b.level}]`;
-    else if (b.type === 'table') tag = '[TABLE]';
-    else if (b.type === 'image') tag = '[IMAGE]';
+    else if (b.type === 'table') tag = b.rowCount ? `[TABLE ${b.rowCount} rows]` : '[TABLE]';
+    else if (b.type === 'image' || b.type === 'chart') tag = `[${b.type.toUpperCase()}]`;
     const preview = b.isEmpty ? '(empty)' : b.text.slice(0, 80) + (b.text.length > 80 ? '...' : '');
     return `[${b.index}] ${tag} ${preview}`;
   });
@@ -2592,7 +2633,7 @@ function buildContentXml(op: any): string {
     xml += coloredHeadingXml(text, level, color);
   }
 
-  // Paragraph text
+  // Paragraph text - for replace_text_at_index, just use the text field
   if (op.content || op.text) {
     const text = op.content || op.text;
     if (op.bold || op.italic || op.color || op.fontSize || op.alignment || op.font || op.underline || op.highlight) {
@@ -2618,6 +2659,11 @@ function buildContentXml(op: any): string {
 
   // Separator
   if (op.separator) xml += '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="CBD5E0"/></w:pBdr></w:pPr></w:p>';
+
+  // Fallback: if nothing else but we have text/content, create a simple paragraph
+  if (!xml && (op.text || op.content)) {
+    xml = paragraphXml(op.text || op.content);
+  }
 
   return xml || paragraphXml(op.text || op.content || '');
 }
