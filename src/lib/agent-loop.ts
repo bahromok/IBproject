@@ -1,4 +1,4 @@
-import { chatCompletion, type ChatMessage } from './groq-client';
+import { chatCompletion, chatCompletionJSON, type ChatMessage } from './ai-client';
 import { executeTool, ToolResult } from './agent-tools';
 import { extractExcelStructure, extractWordStructure } from './file-structure';
 import { getStyleTemplate } from './style-engine';
@@ -166,7 +166,7 @@ export async function runAgentLoop(
 }
 
 /**
- * Generate a multi-step execution plan using AI
+ * Generate a multi-step execution plan using AI with enhanced reasoning
  */
 async function generatePlan(
   task: string,
@@ -182,7 +182,7 @@ async function generatePlan(
     ? 'File edit history:\n' + JSON.stringify(fileHistories, null, 2)
     : '';
   
-  const prompt = `You are an expert document automation agent. Create a detailed execution plan.
+  const prompt = `You are an expert document automation agent with advanced analytical capabilities. Create a detailed execution plan.
 
 TASK: ${task}
 
@@ -190,55 +190,65 @@ ${structureContext}
 
 ${historyContext}
 
-AVAILABLE TOOLS (only these 9 tools can be used):
-1. create_document - Create Word document with filename, title, sections
-2. edit_document - Modify Word document (use "operations" array with types: replace_text, add_heading, add_paragraph, add_bullet_list, add_table, add_table_row, add_section, add_page_break, add_chart, add_image, add_header, add_footer)
-3. create_spreadsheet - Create Excel workbook with filename, sheets
-4. edit_spreadsheet - Modify Excel workbook (use "operations" array with types: add_row, update_cell, set_formula, add_column, set_cell_style, set_number_format, merge_cells, freeze_panes, add_chart)
-5. read_document - Read document content
-6. analyze_file - Analyze file structure
-7. list_files - List all files
-8. delete_file - Delete a file
-9. rename_file - Rename a file
+AVAILABLE TOOLS (only these 14 tools can be used):
+1. read_document - Read Word document content and structure
+2. get_paragraph_index - Get indexed view of all document blocks (USE BEFORE EDITING)
+3. create_document - Create Word document with filename, title, sections
+4. edit_document - Modify Word document (use "operations" array)
+5. read_spreadsheet_full - Read ALL Excel cells with values, formulas, styles (USE BEFORE EDITING)
+6. create_spreadsheet - Create Excel workbook with filename, sheets
+7. edit_spreadsheet - Modify Excel workbook (use "operations" array)
+8. bulk_update_cells - Efficiently update many Excel cells at once
+9. analyze_file - Analyze file structure and metadata
+10. list_files - List all files in storage
+11. delete_file - Delete a file
+12. rename_file - Rename a file
+13. get_document_xml - Get raw Word XML for advanced debugging
+14. set_document_xml - Replace entire document body with XML (NUCLEAR OPTION)
 
-IMPORTANT: Operations like add_row, update_cell etc. are NOT tools - they go inside edit_document/edit_spreadsheet "operations" array.
+IMPORTANT RULES:
+- Operations like add_row, update_cell etc. go INSIDE edit_document/edit_spreadsheet "operations" array
+- ALWAYS read before editing: use get_paragraph_index for Word, read_spreadsheet_full for Excel
+- Use indexed operations (insert_before_index, replace_at_index, etc.) for precise Word editing
+- Use bulk_update_cells for efficient Excel updates
 
 PROFESSIONAL STYLES:
-- Headers: bold, color 1E40AF (blue) or 2D3748 (dark)
-- Tables: headerBg 2D3748, headerFont FFFFFF
-- Financial: number format $#,##0.00
-- Percentage: number format 0.00%
+- Headers: bold, color 1E40AF (blue) or 2D3748 (dark gray)
+- Tables: headerBg 2D3748, headerFont FFFFFF (white)
+- Financial numbers: format $#,##0.00
+- Percentages: format 0.00%
+- Alternating rows: use light gray background F3F4F6
 
 Return JSON with this exact structure:
 {
-  "reasoning": "Brief explanation of approach",
+  "reasoning": "Brief explanation of your approach and analysis",
   "steps": [
     {
       "tool": "tool_name",
       "params": { ... },
-      "description": "What this step does"
+      "description": "What this step does in one sentence"
     }
   ]
 }
 
-Generate the complete plan. Be specific with file names, operations, and styling.`;
+Generate the complete plan. Be specific with file names, operations, data values, and styling.`;
 
-  const response = await chatCompletion([
-    { role: 'system', content: 'You are an expert document automation planner. Always respond with valid JSON.' },
-    { role: 'user', content: prompt }
-  ], { temperature: 0.2 });
-  
+  // Use enhanced JSON mode with reasoning capability
   try {
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return {
-        reasoning: parsed.reasoning || 'Executing task...',
-        steps: parsed.steps || []
-      };
-    }
+    const parsed = await chatCompletionJSON<{ reasoning: string; steps: PlanStep[] }>([
+      { role: 'system', content: 'You are an expert document automation planner. Always respond with valid JSON only.' },
+      { role: 'user', content: prompt }
+    ], { 
+      temperature: 0.2,
+      taskType: 'reasoning' // Use best model for planning
+    });
+    
+    return {
+      reasoning: parsed.reasoning || 'Analyzing task and creating optimal execution plan...',
+      steps: parsed.steps || []
+    };
   } catch (e) {
-    // Fallback plan
+    console.error('Plan generation failed, using fallback:', e);
   }
   
   // Fallback: create simple plan
@@ -258,7 +268,7 @@ Generate the complete plan. Be specific with file names, operations, and styling
 }
 
 /**
- * Attempt to fix a failed step using AI
+ * Attempt to fix a failed step using AI with enhanced analysis
  */
 async function attemptFix(
   step: PlanStep,
@@ -266,33 +276,32 @@ async function attemptFix(
   fileStructures: Record<string, any>
 ): Promise<ToolResult> {
   
-  const fixPrompt = `A document operation failed. Fix it.
+  const fixPrompt = `A document operation failed. Analyze the error and create a corrected version.
 
 ORIGINAL STEP: ${JSON.stringify(step)}
 ERROR: ${result.message}
 FILE STRUCTURES: ${JSON.stringify(fileStructures)}
 
-Analyze the error and create a corrected version of the operation.
-Return JSON with the corrected tool call:
+Analyze what went wrong and provide a corrected operation.
+Return JSON with this structure:
 {
   "tool": "corrected_tool_name",
   "params": { ... },
-  "reason": "Why this should fix the issue"
+  "reason": "Why this fix should work"
 }`;
 
   try {
-    const response = await chatCompletion([
-      { role: 'system', content: 'You fix failed document operations. Always respond with valid JSON.' },
+    const fix = await chatCompletionJSON<{ tool: string; params: any; reason: string }>([
+      { role: 'system', content: 'You fix failed document operations. Always respond with valid JSON only.' },
       { role: 'user', content: fixPrompt }
-    ], { temperature: 0.2 });
+    ], { 
+      temperature: 0.2,
+      taskType: 'analysis' // Use analytical model for debugging
+    });
     
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const fix = JSON.parse(jsonMatch[0]);
-      return await executeTool(fix.params);
-    }
+    return await executeTool(fix.params);
   } catch (e) {
-    // Fix failed
+    console.error('Fix attempt failed:', e);
   }
   
   return result; // Return original error
